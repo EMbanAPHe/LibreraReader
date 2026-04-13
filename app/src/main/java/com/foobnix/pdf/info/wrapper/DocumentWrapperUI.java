@@ -83,6 +83,7 @@ import com.foobnix.ui2.AppDB;
 import com.foobnix.ui2.MainTabs2;
 
 import org.ebookdroid.BookType;
+import com.foobnix.android.utils.ResultResponse;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -438,16 +439,31 @@ public class DocumentWrapperUI {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onTtsHighlight(TtsHighlightEvent event) {
         try {
-            if (ttsCurrentSentence == null) return;
-            if (event.text != null && !event.text.trim().isEmpty()) {
-                ttsCurrentSentence.setText(event.text.trim());
-                ttsCurrentSentence.setVisibility(View.VISIBLE);
-            } else {
-                ttsCurrentSentence.setVisibility(View.GONE);
+            // Update the sentence display bar
+            if (ttsCurrentSentence != null) {
+                String sentence = event.text != null ? event.text.trim() : "";
+                if (!sentence.isEmpty()) {
+                    ttsCurrentSentence.setText(sentence);
+                    ttsCurrentSentence.setVisibility(View.VISIBLE);
+                } else {
+                    ttsCurrentSentence.setVisibility(View.GONE);
+                }
             }
-            // TODO canvas highlight: use event.paragIndex + event.start/end to locate
-            // text bounding boxes via MuPDF StructuredText.getBlocks() / TextWord,
-            // then invalidate PdfSurfaceView with a highlight rect overlay.
+
+            // Canvas-level highlight: use doSearch to find the sentence words on the
+            // current page and populate page.selectedText, which EventDraw renders as
+            // translucent blue rectangles over the matching text.
+            final String searchText = event.text != null ? event.text.trim() : "";
+            if (!searchText.isEmpty() && dc != null) {
+                final int currentPage = dc.getCurentPage();
+                TempHolder.isSeaching = true;
+                dc.doSearch(searchText, new ResultResponse<Integer>() {
+                    @Override
+                    public boolean onResultRecive(Integer result) {
+                        return true;
+                    }
+                }, currentPage - 1, currentPage - 1);
+            }
         } catch (Exception e) {
             LOG.e(e);
         }

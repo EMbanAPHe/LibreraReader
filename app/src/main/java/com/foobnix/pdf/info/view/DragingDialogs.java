@@ -891,12 +891,23 @@ public class DragingDialogs {
 
                 ttsLang.setVisibility(TxtUtils.visibleIf(Build.VERSION.SDK_INT >= 21));
 
-                timerTime.setText(
-                        AppState.get().ttsTimer + " " + controller.getString(R.string.minutes).toLowerCase(Locale.US));
+                timerTime.setText(AppState.get().ttsTimer <= 0
+                        ? "Never"
+                        : AppState.get().ttsTimer + " " + controller.getString(R.string.minutes).toLowerCase(Locale.US));
                 timerTime.setOnClickListener(new OnClickListener() {
                     @Override public void onClick(View v) {
                         final PopupMenu popupMenu = new PopupMenu(v.getContext(), v);
 
+                        // "Never" option (ttsTimer=0 → Long.MAX_VALUE in updateTimer)
+                        popupMenu.getMenu().add("Never").setOnMenuItemClickListener(new OnMenuItemClickListener() {
+                            @Override public boolean onMenuItemClick(MenuItem item) {
+                                AppState.get().ttsTimer = 0;
+                                timerTime.setText("Never");
+                                TxtUtils.underlineTextView(timerTime);
+                                TTSService.updateTimer();
+                                return false;
+                            }
+                        });
                         int[] items = {1, 15, 30, 45, 60, 90, 120, 240, 360};
                         for (final int i : items) {
                             popupMenu.getMenu().add("" + i).setOnMenuItemClickListener(new OnMenuItemClickListener() {

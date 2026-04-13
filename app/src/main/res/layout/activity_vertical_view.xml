@@ -185,7 +185,7 @@
             android:layout_height="wrap_content"
             android:layout_above="@+id/ttsActive"
             android:layout_centerHorizontal="true"
-            android:background="#CC000000"
+            android:background="#CC1a1a1a"
             android:ellipsize="end"
             android:gravity="center_vertical"
             android:maxLines="2"
@@ -203,7 +203,7 @@
             android:layout_height="wrap_content"
             android:layout_above="@+id/seekSpeedLayot"
             android:layout_centerHorizontal="true"
-            android:layout_marginTop="15dip" />
+/>
 
         <FrameLayout
             android:id="@+id/bottomBar1"

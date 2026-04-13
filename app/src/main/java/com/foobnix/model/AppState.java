@@ -128,6 +128,7 @@ public class AppState {
 
             "{'*[()\"«»*”“/\\\\[\\\\]]':' ' , " +//
                     "'*[?!:;–|—|―]':'. ' , " +//
+                    "'n’':' ' , " +//  n-apostrophe: somethin’ → space prevents false pauses
                     "'it’s':'it is' , " +//
                     "'#bla':'bla disabled' , " +//
                     "'*(L|l)ibre.':'$1ibréra'}";//
@@ -324,8 +325,8 @@ public class AppState {
     @IgnoreHashCode public int inactivityTime = 5;
     @IgnoreHashCode public int remindRestTime = -1;
     public int flippingInterval = 10;
-    public int ttsTimer = 240;
-    public int ttsPauseDuration = 50;
+    public int ttsTimer = 0;   // 0 = never stop (handled in TTSService.updateTimer)
+    public int ttsPauseDuration = 0;
     public int transparencyUI = 250;
     @IgnoreHashCode public int pageNumberFormat = PAGE_NUMBER_FORMAT_NUMBER;
     @IgnoreHashCode public int chapterFormat = CHAPTER_FORMAT_3;

@@ -539,6 +539,12 @@ public class TxtUtils {
 
         pageHTML = pageHTML.replace(" ,", ",");
         pageHTML = pageHTML.replace(",,", ",");
+        // Remove space injected before punctuation by EPUB italic/bold span boundaries
+        pageHTML = pageHTML.replace(" .", ".");
+        pageHTML = pageHTML.replace(" ;", ";");
+        pageHTML = pageHTML.replace(" !", "!");
+        pageHTML = pageHTML.replace(" ?", "?");
+        pageHTML = pageHTML.replace(" :", ":");
 
         pageHTML = pageHTML.replace(".,", ".");
         pageHTML = pageHTML.replace(",.", ".");

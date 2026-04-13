@@ -144,7 +144,12 @@ import java.util.List;
     }
 
     public static void updateTimer() {
-        TempHolder.get().timerFinishTime = System.currentTimeMillis() + AppState.get().ttsTimer * 60 * 1000;
+        if (AppState.get().ttsTimer <= 0) {
+            // 0 or negative means "never stop"
+            TempHolder.get().timerFinishTime = Long.MAX_VALUE;
+        } else {
+            TempHolder.get().timerFinishTime = System.currentTimeMillis() + (long) AppState.get().ttsTimer * 60 * 1000;
+        }
         LOG.d("Update-timer", TempHolder.get().timerFinishTime, AppState.get().ttsTimer);
     }
 
