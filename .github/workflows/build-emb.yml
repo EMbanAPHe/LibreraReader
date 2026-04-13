@@ -108,23 +108,21 @@ jobs:
           EOF
 
       - name: Build EMB Release APKs
-        run: ./gradlew assembleEmbRelease --stacktrace
+        run: ./gradlew assembleEmbRelease -PuniversalOnly=true --stacktrace
 
-      - name: Collect APKs
+      - name: Collect APK
         run: |
           mkdir -p apk-out
-          find app/build/outputs/apk/emb/release/ -name "*.apk" -exec cp {} apk-out/ \;
+          # Prefer universal; fall back to any APK if splits weren't disabled
+          find app/build/outputs/apk/emb/release/ -name "*uni*.apk" -exec cp {} apk-out/ \;
+          if [ -z "$(ls apk-out/)" ]; then
+            find app/build/outputs/apk/emb/release/ -name "*.apk" -exec cp {} apk-out/ \;
+          fi
+          ls -lh apk-out/
 
-      - name: Upload arm64 APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: LibreraEMB-arm64
-          path: apk-out/*arm64*.apk
-          retention-days: 30
-
-      - name: Upload universal APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: LibreraEMB-universal
-          path: apk-out/*uni*.apk
+          name: LibreraEMB
+          path: apk-out/*.apk
           retention-days: 30
