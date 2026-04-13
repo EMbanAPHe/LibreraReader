@@ -96,7 +96,10 @@ android {
 
     splits {
         abi {
-            enable = true
+            // For the emb flavor built in CI we disable ABI splits and produce only
+            // a universal APK. This avoids missing-SO crashes when the pre-compiled
+            // native libraries don't cover every ABI separately.
+            enable = !taskName.contains("Emb")
             reset()
             include "x86", "x86_64", "armeabi-v7a", "arm64-v8a"
             universalApk = true
