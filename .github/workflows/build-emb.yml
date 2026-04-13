@@ -23,18 +23,108 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK
+      - name: Install NDK 21 (fdroid build version)
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "ndk;20.1.5948944" \
-            "cmake;3.22.1" \
+            "ndk;21.4.7075529" \
             --channel=0
+          echo "NDK_21=$ANDROID_HOME/ndk/21.4.7075529" >> $GITHUB_ENV
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential python3 git
+
+      - name: Clone MuPDF 1.23.7
+        run: |
+          cd Builder
+          git clone --recursive --depth 1 --branch 1.23.7 \
+            https://git.ghostscript.com/mupdf.git \
+            mupdf-1.23.7
+
+      - name: Apply Librera patches to MuPDF
+        run: |
+          MUPDF_ROOT=$GITHUB_WORKSPACE/Builder/mupdf-1.23.7
+          PATCHES=$GITHUB_WORKSPACE/Builder/jni/~mupdf-1.23.7
+
+          cp -f "$PATCHES/css-apply.c"         "$MUPDF_ROOT/source/html/css-apply.c"
+          cp -f "$PATCHES/epub-doc.c"          "$MUPDF_ROOT/source/html/epub-doc.c"
+          cp -f "$PATCHES/html-layout.c"       "$MUPDF_ROOT/source/html/html-layout.c"
+          cp -f "$PATCHES/html-parse.c"        "$MUPDF_ROOT/source/html/html-parse.c"
+          cp -f "$PATCHES/mucbz.c"             "$MUPDF_ROOT/source/cbz/mucbz.c"
+          cp -f "$PATCHES/muimg.c"             "$MUPDF_ROOT/source/cbz/muimg.c"
+          cp -f "$PATCHES/load-webp.c"         "$MUPDF_ROOT/source/fitz/load-webp.c"
+          cp -f "$PATCHES/image.c"             "$MUPDF_ROOT/source/fitz/image.c"
+          cp -f "$PATCHES/unzip.c"             "$MUPDF_ROOT/source/fitz/unzip.c"
+          cp -f "$PATCHES/directory.c"         "$MUPDF_ROOT/source/fitz/directory.c"
+          cp -f "$PATCHES/xml.c"               "$MUPDF_ROOT/source/fitz/xml.c"
+          cp -f "$PATCHES/list-device.c"       "$MUPDF_ROOT/source/fitz/list-device.c"
+          cp -f "$PATCHES/image-imp.h"         "$MUPDF_ROOT/source/fitz/image-imp.h"
+          cp -f "$PATCHES/pdf-xref.c"          "$MUPDF_ROOT/source/pdf/pdf-xref.c"
+          cp -f "$PATCHES/compressed-buffer.h" "$MUPDF_ROOT/include/mupdf/fitz/compressed-buffer.h"
+          cp -f "$PATCHES/context.h"           "$MUPDF_ROOT/include/mupdf/fitz/context.h"
+          cp -f "$PATCHES/j2k.c"               "$MUPDF_ROOT/thirdparty/openjpeg/src/lib/openjp2/j2k.c"
+          cp -f "$PATCHES/pi.c"                "$MUPDF_ROOT/thirdparty/openjpeg/src/lib/openjp2/pi.c"
+
+      - name: Generate MuPDF font resources
+        run: |
+          cd Builder/mupdf-1.23.7
+          make generate
+
+      - name: Set up platform/librera jni directory
+        run: |
+          MUPDF_ROOT=$GITHUB_WORKSPACE/Builder/mupdf-1.23.7
+          PLATFORM_DIR=$MUPDF_ROOT/platform/librera
+          JNI_SRC=$GITHUB_WORKSPACE/Builder/jni
+
+          mkdir -p "$PLATFORM_DIR/jni"
+          cp -r "$JNI_SRC/"* "$PLATFORM_DIR/jni/"
+          # Use the versioned Android.mk
+          cp -f "$JNI_SRC/Android-1.23.7.mk" "$PLATFORM_DIR/jni/Android.mk"
+
+      - name: Build native libraries with ndk-build
+        run: |
+          PLATFORM_DIR=$GITHUB_WORKSPACE/Builder/mupdf-1.23.7/platform/librera
+          NDK=${{ env.NDK_21 }}/ndk-build
+
+          cd "$PLATFORM_DIR"
+
+          "$NDK" \
+            NDK_APPLICATION_MK=jni/Application.mk \
+            APP_ABI=arm64-v8a \
+            APP_PLATFORM=android-24 \
+            -j$(nproc)
+
+          "$NDK" \
+            NDK_APPLICATION_MK=jni/Application.mk \
+            APP_ABI=armeabi-v7a \
+            APP_PLATFORM=android-24 \
+            -j$(nproc)
+
+          echo "=== Built .so files ==="
+          find "$PLATFORM_DIR/libs" -name "*.so" | sort
+
+      - name: Copy .so files into jniLibs
+        run: |
+          PLATFORM_DIR=$GITHUB_WORKSPACE/Builder/mupdf-1.23.7/platform/librera
+          JNILIBS=$GITHUB_WORKSPACE/app/src/main/jniLibs
+
+          mkdir -p "$JNILIBS/arm64-v8a"
+          mkdir -p "$JNILIBS/armeabi-v7a"
+
+          cp -f "$PLATFORM_DIR/libs/arm64-v8a/"*.so   "$JNILIBS/arm64-v8a/"
+          cp -f "$PLATFORM_DIR/libs/armeabi-v7a/"*.so "$JNILIBS/armeabi-v7a/"
+
+          echo "=== jniLibs populated ==="
+          find "$JNILIBS" -name "*.so" | sort
 
       - name: Decode keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode \
+            > ${{ github.workspace }}/release.keystore
 
-      - name: Write signing properties
+      - name: Write signing + flavor stub properties
         run: |
           cat >> app/gradle.properties <<EOF
           RELEASE_STORE_FILE=${{ github.workspace }}/release.keystore
@@ -74,9 +164,6 @@ jobs:
           epub_reader_admobRewardId=
           EOF
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
       - name: Create stub google-services.json
         run: |
           cat > app/google-services.json <<'EOF'
@@ -107,17 +194,16 @@ jobs:
           }
           EOF
 
-      - name: Build EMB Release APKs
-        run: ./gradlew assembleEmbRelease -PuniversalOnly=true --stacktrace
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build EMB Release APK
+        run: ./gradlew assembleEmbRelease --stacktrace
 
       - name: Collect APK
         run: |
           mkdir -p apk-out
-          # Prefer universal; fall back to any APK if splits weren't disabled
-          find app/build/outputs/apk/emb/release/ -name "*uni*.apk" -exec cp {} apk-out/ \;
-          if [ -z "$(ls apk-out/)" ]; then
-            find app/build/outputs/apk/emb/release/ -name "*.apk" -exec cp {} apk-out/ \;
-          fi
+          find app/build/outputs/apk/emb/release/ -name "*.apk" -exec cp {} apk-out/ \;
           ls -lh apk-out/
 
       - name: Upload APK
