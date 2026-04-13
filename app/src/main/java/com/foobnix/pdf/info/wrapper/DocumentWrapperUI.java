@@ -76,6 +76,7 @@ import com.foobnix.tts.MessagePageNumber;
 import com.foobnix.tts.TTSControlsView;
 import com.foobnix.tts.TTSEngine;
 import com.foobnix.tts.TTSService;
+import com.foobnix.tts.TtsHighlightEvent;
 import com.foobnix.tts.TtsStatus;
 import com.foobnix.ui2.AdsFragmentActivity;
 import com.foobnix.ui2.AppDB;
@@ -253,6 +254,7 @@ public class DocumentWrapperUI {
     ImageView pagesBookmark;
     View line1, line2, lineFirst, lineClose, closeTop, musicButtonPanel, parentParent, documentTitleBar;
     TTSControlsView ttsActive;
+    TextView ttsCurrentSentence;
     SeekBar seekBar, speedSeekBar;
     FrameLayout anchor;
     public View.OnClickListener onShowContext = new View.OnClickListener() {
@@ -426,11 +428,29 @@ public class DocumentWrapperUI {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onTTSStatus(TtsStatus status) {
         try {
-            ttsActive.setVisibility(TxtUtils.visibleIf(!TTSEngine.get().isShutdown()));
+            ttsActive.setVisibility(View.VISIBLE);
         } catch (Exception e) {
             LOG.e(e);
         }
 
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onTtsHighlight(TtsHighlightEvent event) {
+        try {
+            if (ttsCurrentSentence == null) return;
+            if (event.text != null && !event.text.trim().isEmpty()) {
+                ttsCurrentSentence.setText(event.text.trim());
+                ttsCurrentSentence.setVisibility(View.VISIBLE);
+            } else {
+                ttsCurrentSentence.setVisibility(View.GONE);
+            }
+            // TODO canvas highlight: use event.paragIndex + event.start/end to locate
+            // text bounding boxes via MuPDF StructuredText.getBlocks() / TextWord,
+            // then invalidate PdfSurfaceView with a highlight rect overlay.
+        } catch (Exception e) {
+            LOG.e(e);
+        }
     }
 
     public void onSingleTap() {
@@ -1185,6 +1205,7 @@ public class DocumentWrapperUI {
         textToSpeachTop.setOnClickListener(onTextToSpeach);
 
         ttsActive = a.findViewById(R.id.ttsActive);
+        ttsCurrentSentence = a.findViewById(R.id.ttsCurrentSentence);
         ttsActive.setDC(dc);
         ttsActive.addOnDialogRunnable(new Runnable() {
 
@@ -2101,7 +2122,7 @@ public class DocumentWrapperUI {
         }
 
         if (ttsActive != null) {
-            ttsActive.setVisibility(TxtUtils.visibleIf(TTSEngine.get().isTempPausing()));
+            ttsActive.setVisibility(View.VISIBLE);
         }
 
     }

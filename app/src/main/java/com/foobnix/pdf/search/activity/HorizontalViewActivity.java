@@ -1341,7 +1341,7 @@ public class HorizontalViewActivity extends AdsFragmentActivity {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onTTSStatus(TtsStatus status) {
         try {
-            ttsActive.setVisibility(TxtUtils.visibleIf(!TTSEngine.get().isShutdown()));
+            ttsActive.setVisibility(View.VISIBLE);
         } catch (Exception e) {
             LOG.e(e);
         }
@@ -1565,7 +1565,7 @@ public class HorizontalViewActivity extends AdsFragmentActivity {
         }
 
         if (ttsActive != null) {
-            ttsActive.setVisibility(TxtUtils.visibleIf(TTSEngine.get().isTempPausing()));
+            ttsActive.setVisibility(View.VISIBLE);
         }
 
     }

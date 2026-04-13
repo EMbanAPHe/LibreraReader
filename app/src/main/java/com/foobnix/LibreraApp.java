@@ -19,7 +19,6 @@ import com.foobnix.android.utils.LOG;
 import com.foobnix.android.utils.TxtUtils;
 import com.foobnix.ext.CacheZipUtils;
 import com.foobnix.hypen.HypenUtils;
-import com.foobnix.pdf.info.ADS;
 import com.foobnix.pdf.info.AppsConfig;
 import com.foobnix.pdf.info.IMG;
 import com.foobnix.pdf.info.Prefs;
@@ -101,7 +100,6 @@ public class LibreraApp extends MultiDexApplication {
             LOG.e(e);
         }
 
-        Log.d("Build", "Build.TestDeviceID :" + ADS.getByTestID(this));
         Log.d("Build", "Build.MODEL :" + Build.MODEL);
         Log.d("Build", "Build.DEVICE:" + Build.DEVICE);
 

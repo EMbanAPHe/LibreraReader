@@ -57,7 +57,6 @@ import org.ebookdroid.common.settings.books.SharedBooks;
 import org.ebookdroid.core.codec.CodecDocument;
 import org.ebookdroid.core.codec.CodecPage;
 import org.greenrobot.eventbus.EventBus;
-
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -562,6 +561,29 @@ import java.util.List;
         return START_STICKY;
     }
 
+    /**
+     * Persists the current paragraph index and page number into the per-book AppBook record
+     * so TTS can resume from the same sentence after the app is restarted.
+     */
+    private void persistTtsPosition() {
+        final String path = AppSP.get().lastBookPath;
+        final int parag = AppSP.get().lastBookParagraph;
+        final int page = AppSP.get().lastBookPage;
+        if (TxtUtils.isNotEmpty(path)) {
+            new Thread(() -> {
+                try {
+                    AppBook book = SharedBooks.load(path);
+                    book.ttsParag = parag;
+                    book.ttsParagPage = page;
+                    SharedBooks.saveAsync(book);
+                    LOG.d(TAG, "persistTtsPosition", page, parag);
+                } catch (Exception e) {
+                    LOG.e(e);
+                }
+            }, "@T TTS ParagSave").start();
+        }
+    }
+
     private void stopMediaSesstionAndReleaweWakeLock() {
         TTSEngine.get()
                  .stop(mMediaSessionCompat);
@@ -696,8 +718,45 @@ import java.util.List;
                 TTSEngine.get()
                          .getTTS()
                          .setOnUtteranceProgressListener(new UtteranceProgressListener() {
+
+                             // Tracks the current paragraph's text for highlight events
+                             // Split firstPart the same way speek() does, so index i in
+                             // utteranceId FINISHED_SIGNAL+i maps to pageParts[i].
+                             private final String[] pageParts =
+                                     firstPart.split(TxtUtils.TTS_PAUSE);
+
                              @Override public void onStart(String utteranceId) {
                                  LOG.d(TAG, "onUtteranceCompleted onStart", utteranceId);
+                                 if (utteranceId.startsWith(TTSEngine.FINISHED_SIGNAL)) {
+                                     try {
+                                         int idx = Integer.parseInt(
+                                                 utteranceId.replace(TTSEngine.FINISHED_SIGNAL, ""));
+                                         String sentenceText = (idx < pageParts.length)
+                                                 ? pageParts[idx] : "";
+                                         EventBus.getDefault().post(
+                                                 new TtsHighlightEvent(idx, sentenceText));
+                                     } catch (Exception e) {
+                                         LOG.e(e);
+                                     }
+                                 }
+                             }
+
+                             @Override
+                             public void onRangeStart(String utteranceId, int start, int end,
+                                     int frame) {
+                                 if (utteranceId.startsWith(TTSEngine.FINISHED_SIGNAL)) {
+                                     try {
+                                         int idx = Integer.parseInt(
+                                                 utteranceId.replace(TTSEngine.FINISHED_SIGNAL, ""));
+                                         String sentenceText = (idx < pageParts.length)
+                                                 ? pageParts[idx] : "";
+                                         EventBus.getDefault().post(
+                                                 new TtsHighlightEvent(idx, start, end,
+                                                         sentenceText));
+                                     } catch (Exception e) {
+                                         LOG.e(e);
+                                     }
+                                 }
                              }
 
                              @Override public void onError(String utteranceId) {
@@ -726,6 +785,7 @@ import java.util.List;
                                          AppSP.get().lastBookParagraph = Integer.parseInt(
                                                  utteranceId.replace(TTSEngine.FINISHED_SIGNAL, "")) + 1;
                                      }
+                                     persistTtsPosition();
                                      return;
                                  }
 
@@ -763,11 +823,7 @@ import java.util.List;
                                          AppSP.get().lastBookParagraph = Integer.parseInt(
                                                  utteranceId.replace(TTSEngine.FINISHED_SIGNAL, "")) + 1;
                                      }
-                                     return;
-                                 }
-
-                                 if (!utteranceId.equals(TTSEngine.UTTERANCE_ID_DONE)) {
-                                     LOG.d(TAG, "onUtteranceCompleted skip", "");
+                                     persistTtsPosition();
                                      return;
                                  }
 

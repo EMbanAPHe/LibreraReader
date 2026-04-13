@@ -122,6 +122,23 @@ android {
             ]
             versionNameSuffix = '-fdroid'
         }
+        emb {
+            minSdk = libs.versions.minSdk.get().toInteger()
+            dimension = "version"
+            applicationId = "com.emb.librera"
+            manifestPlaceholders = [
+                    appName      : "Librera EMB",
+                    appIcon      : "@mipmap/icon_pdf_pro",
+                    appRoundIcon : "@mipmap/icon_pdf_pro",
+                    appGdriveKey : "",
+                    admobAppId   : "",
+                    admobBannerId: "",
+                    admobFullId  : "",
+                    admobRewardId  : "",
+                    appSafeMode  : "false"
+            ]
+            versionNameSuffix = '-emb'
+        }
         librera {
             dimension = "version"
             applicationId = "com.foobnix.pdf.reader"
@@ -270,6 +287,10 @@ android {
 
     sourceSets {
         fdroid { assets.srcDirs = ['src/fdroid/assets', 'src/fdroid/assets/'] }
+        emb {
+            java.srcDirs += ['src/fdroid/java']
+            assets.srcDirs = ['src/fdroid/assets', 'src/fdroid/assets/']
+        }
     }
 
     packagingOptions {
@@ -289,6 +310,7 @@ dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     proImplementation project(':libPro')
     fdroidImplementation project(':libPro')
+    embImplementation project(':libPro')
     implementation project(':libReflow')
 
     //implementation project(":shared")

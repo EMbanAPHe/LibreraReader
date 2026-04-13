@@ -33,6 +33,9 @@ public class AppBook implements CurrentPageListener {
     public long t;//time
     public String ln;
 
+    public int ttsParag = 0;     // TTS paragraph-resume index within the page
+    public int ttsParagPage = -1; // which page ttsParag belongs to (-1 = unset)
+
     public boolean rtl = Urls.isRtl();
 
     @Override

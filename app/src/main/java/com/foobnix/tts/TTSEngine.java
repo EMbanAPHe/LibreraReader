@@ -18,6 +18,8 @@ import com.foobnix.android.utils.LOG;
 import com.foobnix.android.utils.MyMath;
 import com.foobnix.android.utils.ResultResponse;
 import com.foobnix.android.utils.TxtUtils;
+import com.foobnix.model.AppBook;
+import org.ebookdroid.common.settings.books.SharedBooks;
 import com.foobnix.android.utils.Vibro;
 import com.foobnix.mobi.parser.IOUtils;
 import com.foobnix.mobi.parser.MobiParserIS;
@@ -237,7 +239,19 @@ public class TTSEngine {
 
         if (AppSP.get().tempBookPage != AppSP.get().lastBookPage) {
             AppSP.get().tempBookPage = AppSP.get().lastBookPage;
-            AppSP.get().lastBookParagraph = 0;
+            // Restore the saved paragraph position for this book/page, else start from 0
+            try {
+                AppBook book = SharedBooks.load(AppSP.get().lastBookPath);
+                if (book.ttsParagPage == AppSP.get().lastBookPage) {
+                    AppSP.get().lastBookParagraph = book.ttsParag;
+                    LOG.d(TAG, "speek restore ttsParag", book.ttsParag, "page", AppSP.get().lastBookPage);
+                } else {
+                    AppSP.get().lastBookParagraph = 0;
+                }
+            } catch (Exception e) {
+                AppSP.get().lastBookParagraph = 0;
+                LOG.e(e);
+            }
         }
 
         LOG.d(TAG, "speek", AppSP.get().lastBookPage, "par", AppSP.get().lastBookParagraph);
