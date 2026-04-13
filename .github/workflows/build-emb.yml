@@ -39,7 +39,7 @@ jobs:
       - name: Clone MuPDF 1.23.7
         run: |
           cd Builder
-          git clone --recursive --depth 1 --branch 1.23.7 \
+          git clone --recursive --branch 1.23.7 \
             https://git.ghostscript.com/mupdf.git \
             mupdf-1.23.7
 
