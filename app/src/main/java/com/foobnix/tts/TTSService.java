@@ -713,17 +713,14 @@ import java.util.List;
                 }
             }
             final String preText1 = preText;
+            // firstPart may have been reassigned above (preText prepend), so capture
+            // the split result in a final variable before entering the anonymous class.
+            final String[] ttsPageParts = firstPart.split(TxtUtils.TTS_PAUSE);
 
             if (Build.VERSION.SDK_INT >= 15) {
                 TTSEngine.get()
                          .getTTS()
                          .setOnUtteranceProgressListener(new UtteranceProgressListener() {
-
-                             // Tracks the current paragraph's text for highlight events
-                             // Split firstPart the same way speek() does, so index i in
-                             // utteranceId FINISHED_SIGNAL+i maps to pageParts[i].
-                             private final String[] pageParts =
-                                     firstPart.split(TxtUtils.TTS_PAUSE);
 
                              @Override public void onStart(String utteranceId) {
                                  LOG.d(TAG, "onUtteranceCompleted onStart", utteranceId);
@@ -731,8 +728,8 @@ import java.util.List;
                                      try {
                                          int idx = Integer.parseInt(
                                                  utteranceId.replace(TTSEngine.FINISHED_SIGNAL, ""));
-                                         String sentenceText = (idx < pageParts.length)
-                                                 ? pageParts[idx] : "";
+                                         String sentenceText = (idx < ttsPageParts.length)
+                                                 ? ttsPageParts[idx] : "";
                                          EventBus.getDefault().post(
                                                  new TtsHighlightEvent(idx, sentenceText));
                                      } catch (Exception e) {
@@ -748,8 +745,8 @@ import java.util.List;
                                      try {
                                          int idx = Integer.parseInt(
                                                  utteranceId.replace(TTSEngine.FINISHED_SIGNAL, ""));
-                                         String sentenceText = (idx < pageParts.length)
-                                                 ? pageParts[idx] : "";
+                                         String sentenceText = (idx < ttsPageParts.length)
+                                                 ? ttsPageParts[idx] : "";
                                          EventBus.getDefault().post(
                                                  new TtsHighlightEvent(idx, start, end,
                                                          sentenceText));
