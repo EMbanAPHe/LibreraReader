@@ -23,6 +23,8 @@ import android.widget.TextView;
 import com.foobnix.android.utils.Apps;
 import com.foobnix.android.utils.LOG;
 import com.foobnix.android.utils.TxtUtils;
+import com.foobnix.model.AppSP;
+import com.foobnix.model.AppState;
 import com.foobnix.pdf.info.R;
 import com.foobnix.pdf.info.TintUtil;
 import com.foobnix.pdf.info.Urls;
@@ -132,13 +134,20 @@ public class TTSControlsView extends FrameLayout {
                 if (!TTSService.isTTSGranted(context)) {
                     return;
                 }
-                PendingIntent next = PendingIntent.getService(context, 0, new Intent(TTSNotification.TTS_NEXT, null, context, TTSService.class), PendingIntent.FLAG_IMMUTABLE);
-                try {
-                    next.send();
-                } catch (CanceledException e) {
-                    LOG.d(e);
+                // Next SENTENCE: increment paragraph index and restart same page
+                if (TTSEngine.get().isPlaying() || TTSEngine.get().isTempPausing()) {
+                    AppSP.get().lastBookParagraph = AppSP.get().lastBookParagraph + 1;
+                    PendingIntent next = PendingIntent.getService(context, 0,
+                            new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
+                            PendingIntent.FLAG_IMMUTABLE);
+                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
+                } else {
+                    // Not playing - go to next page
+                    PendingIntent next = PendingIntent.getService(context, 0,
+                            new Intent(TTSNotification.TTS_NEXT, null, context, TTSService.class),
+                            PendingIntent.FLAG_IMMUTABLE);
+                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
                 }
-
             }
         });
         ttsPrev.setOnClickListener(new OnClickListener() {
@@ -148,13 +157,21 @@ public class TTSControlsView extends FrameLayout {
                 if (!TTSService.isTTSGranted(context)) {
                     return;
                 }
-                PendingIntent next = PendingIntent.getService(context, 0, new Intent(TTSNotification.TTS_PREV, null, context, TTSService.class), PendingIntent.FLAG_IMMUTABLE);
-                try {
-                    next.send();
-                } catch (CanceledException e) {
-                    LOG.d(e);
+                // Prev SENTENCE: decrement paragraph index and restart same page
+                if (TTSEngine.get().isPlaying() || TTSEngine.get().isTempPausing()) {
+                    int parag = AppSP.get().lastBookParagraph - 1;
+                    AppSP.get().lastBookParagraph = Math.max(0, parag);
+                    PendingIntent next = PendingIntent.getService(context, 0,
+                            new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
+                            PendingIntent.FLAG_IMMUTABLE);
+                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
+                } else {
+                    // Not playing - go to prev page
+                    PendingIntent next = PendingIntent.getService(context, 0,
+                            new Intent(TTSNotification.TTS_PREV, null, context, TTSService.class),
+                            PendingIntent.FLAG_IMMUTABLE);
+                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
                 }
-
             }
         });
 

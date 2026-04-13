@@ -321,7 +321,7 @@ public class AppState {
     // Color.parseColor(STYLE_COLORS.get(STYLE_COLORS.size() - 2));
     public int userColor = Color.MAGENTA;
     public int helpHash = 0;
-    @IgnoreHashCode public int doubleClickAction1 = DOUBLE_CLICK_ADJUST_PAGE;
+    @IgnoreHashCode public int doubleClickAction1 = DOUBLE_CLICK_START_STOP_TTS;
     @IgnoreHashCode public int inactivityTime = 5;
     @IgnoreHashCode public int remindRestTime = -1;
     public int flippingInterval = 10;
@@ -396,7 +396,7 @@ public class AppState {
     @IgnoreHashCode public boolean ttsReadBySentences = true;
     @IgnoreHashCode public String ttsSentecesDivs = TTS_PUNCUATIONS;
     @IgnoreHashCode public boolean ttsTunnOnLastWord = false;
-    @IgnoreHashCode public boolean isEnalbeTTSReplacements = true;
+    @IgnoreHashCode public boolean isEnalbeTTSReplacements = true;  // enabled by default
     public boolean isReferenceMode = false;
     public boolean isShowPageNumbers = false;
     public boolean isEnableAccessibility = false;

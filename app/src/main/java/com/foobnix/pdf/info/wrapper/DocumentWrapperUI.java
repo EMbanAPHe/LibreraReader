@@ -1497,6 +1497,48 @@ public class DocumentWrapperUI {
         });
     }
 
+    /**
+     * Double-tap to start TTS from the tapped sentence.
+     * Finds the word at (x,y), matches it to a sentence in the TTS paragraph list,
+     * sets lastBookParagraph to that index, then starts playback.
+     * Falls back to plain start/stop if no text is found at the tap point.
+     */
+    private void startTTSFromTap(int x, int y) {
+        try {
+            // Find the word tapped using the existing processLongTap single-tap path
+            android.view.MotionEvent ev = android.view.MotionEvent.obtain(0, 0,
+                    android.view.MotionEvent.ACTION_DOWN, x, y, 0);
+            String tappedWord = dc.processLongTap(true, ev, ev, false);
+            ev.recycle();
+
+            if (TxtUtils.isNotEmpty(tappedWord)) {
+                // Get the current page HTML and split it into TTS paragraphs
+                String pageHTML = dc.getPageHtml();
+                if (TxtUtils.isNotEmpty(pageHTML)) {
+                    pageHTML = com.foobnix.android.utils.TxtUtils.replaceHTMLforTTS(pageHTML);
+                    String[] parts = pageHTML.split(com.foobnix.android.utils.TxtUtils.TTS_PAUSE);
+                    String word = tappedWord.trim().toLowerCase();
+                    int foundIdx = -1;
+                    for (int i = 0; i < parts.length; i++) {
+                        if (parts[i].toLowerCase().contains(word)) {
+                            foundIdx = i;
+                            break;
+                        }
+                    }
+                    if (foundIdx >= 0) {
+                        AppSP.get().lastBookParagraph = foundIdx;
+                        // Reset tempBookPage so speek() restores from foundIdx
+                        AppSP.get().tempBookPage = -1;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.e(e);
+        }
+        // Always start/stop TTS regardless of whether we found the sentence
+        TTSService.playPause(dc.getActivity(), dc);
+    }
+
     public void doDoubleTap(int x, int y) {
         if (dc.isMusicianMode()) {
             if (AppState.get().doubleClickAction1 == AppState.DOUBLE_CLICK_ADJUST_PAGE) {
@@ -1520,7 +1562,7 @@ public class DocumentWrapperUI {
             } else if (AppState.get().doubleClickAction1 == AppState.DOUBLE_CLICK_SHARE_PAGE) {
                 ExtUtils.sharePage(dc, dc.getCurentPage() - 1);
             } else if (AppState.get().doubleClickAction1 == AppState.DOUBLE_CLICK_START_STOP_TTS) {
-                TTSService.playPause(dc.getActivity(), dc);
+                startTTSFromTap(x, y);
 
             } else if (AppState.get().doubleClickAction1 == AppState.DOUBLE_CLICK_CLOSE_BOOK_AND_APP) {
                 dc.onCloseActivityFinal(new Runnable() {

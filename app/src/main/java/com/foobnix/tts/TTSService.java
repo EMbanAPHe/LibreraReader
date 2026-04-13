@@ -54,6 +54,7 @@ import com.foobnix.sys.ImageExtractor;
 import com.foobnix.sys.TempHolder;
 
 import org.ebookdroid.common.settings.books.SharedBooks;
+import com.foobnix.pdf.search.activity.msg.UpdateAllFragments;
 import org.ebookdroid.core.codec.CodecDocument;
 import org.ebookdroid.core.codec.CodecPage;
 import org.greenrobot.eventbus.EventBus;
@@ -492,6 +493,7 @@ import java.util.List;
                          .isPlaying()) {
                 stopMediaSesstionAndReleaweWakeLock();
             } else {
+                // Resume from saved paragraph on current page
                 playPage("", AppSP.get().lastBookPage, null);
             }
             TTSNotification.showLast();
@@ -511,10 +513,14 @@ import java.util.List;
 
             if (TTSEngine.get()
                          .isMp3PlayPause()) {
-
                 return START_STICKY;
             }
 
+            // Play (or restart) from current paragraph index on current page.
+            // This is used by sentence next/prev: the caller has already updated
+            // AppSP.lastBookParagraph and speek() will start from that index.
+            // Reset tempBookPage so speek() uses the saved paragraph, not 0.
+            AppSP.get().tempBookPage = -1;
             playPage("", AppSP.get().lastBookPage, null);
             TTSNotification.showLast();
         }
@@ -863,6 +869,9 @@ import java.util.List;
 
                 SharedBooks.saveAsync(load);
                 AppProfile.save(this);
+                // Refresh recents list in the library UI
+                TempHolder.listHash++;
+                EventBus.getDefault().post(new UpdateAllFragments());
             }, "@T TTS Save").start();
         }
     }
