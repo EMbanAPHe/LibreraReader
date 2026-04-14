@@ -134,20 +134,14 @@ public class TTSControlsView extends FrameLayout {
                 if (!TTSService.isTTSGranted(context)) {
                     return;
                 }
-                // Next SENTENCE: increment paragraph index and restart same page
-                if (TTSEngine.get().isPlaying() || TTSEngine.get().isTempPausing()) {
-                    AppSP.get().lastBookParagraph = AppSP.get().lastBookParagraph + 1;
-                    PendingIntent next = PendingIntent.getService(context, 0,
-                            new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
-                            PendingIntent.FLAG_IMMUTABLE);
-                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
-                } else {
-                    // Not playing - go to next page
-                    PendingIntent next = PendingIntent.getService(context, 0,
-                            new Intent(TTSNotification.TTS_NEXT, null, context, TTSService.class),
-                            PendingIntent.FLAG_IMMUTABLE);
-                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
-                }
+                // Next SENTENCE: increment paragraph index, keep tempBookPage so speek() won't restore from disk
+                AppSP.get().lastBookParagraph = AppSP.get().lastBookParagraph + 1;
+                // Set tempBookPage = lastBookPage so speek() skips SharedBooks restore
+                AppSP.get().tempBookPage = AppSP.get().lastBookPage;
+                PendingIntent nextIntent = PendingIntent.getService(context, 0,
+                        new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
+                        PendingIntent.FLAG_IMMUTABLE);
+                try { nextIntent.send(); } catch (CanceledException e) { LOG.d(e); }
             }
         });
         ttsPrev.setOnClickListener(new OnClickListener() {
@@ -157,21 +151,15 @@ public class TTSControlsView extends FrameLayout {
                 if (!TTSService.isTTSGranted(context)) {
                     return;
                 }
-                // Prev SENTENCE: decrement paragraph index and restart same page
-                if (TTSEngine.get().isPlaying() || TTSEngine.get().isTempPausing()) {
-                    int parag = AppSP.get().lastBookParagraph - 1;
-                    AppSP.get().lastBookParagraph = Math.max(0, parag);
-                    PendingIntent next = PendingIntent.getService(context, 0,
-                            new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
-                            PendingIntent.FLAG_IMMUTABLE);
-                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
-                } else {
-                    // Not playing - go to prev page
-                    PendingIntent next = PendingIntent.getService(context, 0,
-                            new Intent(TTSNotification.TTS_PREV, null, context, TTSService.class),
-                            PendingIntent.FLAG_IMMUTABLE);
-                    try { next.send(); } catch (CanceledException e) { LOG.d(e); }
-                }
+                // Prev SENTENCE: decrement paragraph index, keep tempBookPage so speek() won't restore from disk
+                int parag = AppSP.get().lastBookParagraph - 1;
+                AppSP.get().lastBookParagraph = Math.max(0, parag);
+                // Set tempBookPage = lastBookPage so speek() skips SharedBooks restore
+                AppSP.get().tempBookPage = AppSP.get().lastBookPage;
+                PendingIntent prevIntent = PendingIntent.getService(context, 0,
+                        new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
+                        PendingIntent.FLAG_IMMUTABLE);
+                try { prevIntent.send(); } catch (CanceledException e) { LOG.d(e); }
             }
         });
 

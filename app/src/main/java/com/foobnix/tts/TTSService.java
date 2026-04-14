@@ -516,11 +516,10 @@ import java.util.List;
                 return START_STICKY;
             }
 
-            // Play (or restart) from current paragraph index on current page.
-            // This is used by sentence next/prev: the caller has already updated
-            // AppSP.lastBookParagraph and speek() will start from that index.
-            // Reset tempBookPage so speek() uses the saved paragraph, not 0.
-            AppSP.get().tempBookPage = -1;
+            // Play from current lastBookParagraph on current page.
+            // Caller (TTSControlsView) has already set:
+            //   AppSP.lastBookParagraph = target sentence index
+            //   AppSP.tempBookPage = AppSP.lastBookPage  (prevents SharedBooks restore override)
             playPage("", AppSP.get().lastBookPage, null);
             TTSNotification.showLast();
         }
@@ -581,6 +580,9 @@ import java.util.List;
         final int parag = AppSP.get().lastBookParagraph;
         final int page = AppSP.get().lastBookPage;
         if (TxtUtils.isNotEmpty(path)) {
+            // Save AppSP immediately (sync) so lastBookPage/lastBookPath/lastBookParagraph
+            // survive process kill and are available on next cold start.
+            AppSP.get().save();
             new Thread(() -> {
                 try {
                     AppBook book = SharedBooks.load(path);

@@ -450,19 +450,35 @@ public class DocumentWrapperUI {
                 }
             }
 
-            // Canvas-level highlight: use doSearch to find the sentence words on the
-            // current page and populate page.selectedText, which EventDraw renders as
-            // translucent blue rectangles over the matching text.
-            final String searchText = event.text != null ? event.text.trim() : "";
-            if (!searchText.isEmpty() && dc != null) {
-                final int currentPage = dc.getCurentPage();
-                TempHolder.isSeaching = true;
-                dc.doSearch(searchText, new ResultResponse<Integer>() {
-                    @Override
-                    public boolean onResultRecive(Integer result) {
-                        return true;
+            // Canvas-level highlight: search for first 4 words of the sentence.
+            // Using a short prefix improves match rate since page.texts contains raw
+            // unprocessed words while event.text has been TTS-preprocessed.
+            final String rawText = event.text != null ? event.text.trim() : "";
+            if (!rawText.isEmpty() && dc != null) {
+                // Extract first 4 meaningful words for robust matching
+                String[] words = rawText.split("\\s+");
+                int wordCount = Math.min(4, words.length);
+                StringBuilder sb = new StringBuilder();
+                for (int wi = 0; wi < wordCount; wi++) {
+                    String w = words[wi].replaceAll("[^\\p{L}\\p{N}]", "");
+                    if (!w.isEmpty()) {
+                        if (sb.length() > 0) sb.append(" ");
+                        sb.append(w);
                     }
-                }, currentPage - 1, currentPage - 1);
+                }
+                final String searchText = sb.toString().toLowerCase();
+                if (!searchText.isEmpty()) {
+                    final int currentPage = dc.getCurentPage();
+                    TempHolder.isSeaching = true;
+                    dc.doSearch(searchText, new ResultResponse<Integer>() {
+                        @Override
+                        public boolean onResultRecive(Integer result) {
+                            // Stop search once we find on current page
+                            TempHolder.isSeaching = (result == null || result >= 0);
+                            return true;
+                        }
+                    }, currentPage - 1, currentPage - 1);
+                }
             }
         } catch (Exception e) {
             LOG.e(e);
@@ -1225,20 +1241,8 @@ public class DocumentWrapperUI {
         ttsActive.setDC(dc);
         ttsActive.setBookMenuRunnable(new Runnable() {
             @Override public void run() {
-                // Open the book info / share dialog (same as the book menu button in top bar)
-                ShareDialog.show(a, dc.getCurrentBook(), new Runnable() {
-                    @Override public void run() {
-                        if (dc.getCurrentBook().delete()) {
-                            TempHolder.listHash++;
-                            AppDB.get().deleteBy(dc.getCurrentBook().getPath());
-                            dc.getActivity().finish();
-                        }
-                    }
-                }, dc.getCurentPage() - 1, dc, new Runnable() {
-                    @Override public void run() {
-                        hideShow();
-                    }
-                });
+                // Show/hide the top toolbar - same as the old single-tap behaviour
+                doShowHideWrapperControlls();
             }
         });
         ttsActive.addOnDialogRunnable(new Runnable() {
@@ -1517,38 +1521,50 @@ public class DocumentWrapperUI {
 
     /**
      * Double-tap to start TTS from the tapped sentence.
-     * Uses the Y-coordinate fraction to estimate which paragraph in the TTS queue
-     * corresponds to the tapped position, then starts playback from that point.
      *
-     * The page HTML is split into TTS_PAUSE-delimited paragraphs (same split as speek()).
-     * Y fraction within the view maps linearly to paragraph index.
+     * Y-fraction approach: maps tap Y pixel to a paragraph index in the TTS queue.
+     * Always stops existing TTS first, sets the paragraph, then starts fresh playback.
+     * Never plays/pauses - always seeks to the tapped position.
      */
     private void startTTSFromTap(int x, int y) {
+        // Stop any existing TTS first
+        TTSEngine.get().stop();
+
+        int targetParagraph = 0;
         try {
             String pageHTML = dc.getPageHtml();
             if (TxtUtils.isNotEmpty(pageHTML)) {
                 pageHTML = TxtUtils.replaceHTMLforTTS(pageHTML);
                 String[] parts = pageHTML.split(TxtUtils.TTS_PAUSE);
-                if (parts.length > 1) {
-                    // Estimate which paragraph corresponds to the tap Y position.
-                    // Use the view height as the total page height proxy.
+                if (parts.length > 0) {
                     int viewHeight = a.getWindow().getDecorView().getHeight();
                     if (viewHeight > 0) {
-                        float fraction = Math.max(0f, Math.min(1f, (float) y / viewHeight));
-                        int estimated = (int) (fraction * parts.length);
-                        estimated = Math.min(estimated, parts.length - 1);
-                        AppSP.get().lastBookParagraph = estimated;
-                        // Reset tempBookPage so speek() picks up the new paragraph index
-                        AppSP.get().tempBookPage = -1;
-                        LOG.d("TTS startTTSFromTap", "y", y, "fraction", fraction,
-                              "paragraph", estimated, "/", parts.length);
+                        float fraction = Math.max(0f, Math.min(0.99f, (float) y / viewHeight));
+                        targetParagraph = (int) (fraction * parts.length);
+                        targetParagraph = Math.min(targetParagraph, parts.length - 1);
+                        LOG.d("TTS tap", "y=", y, "frac=", fraction,
+                              "para=", targetParagraph, "/", parts.length);
                     }
                 }
             }
         } catch (Exception e) {
             LOG.e(e);
         }
-        TTSService.playPause(dc.getActivity(), dc);
+
+        // Set paragraph and lock tempBookPage so speek() won't restore from disk
+        AppSP.get().lastBookParagraph = targetParagraph;
+        AppSP.get().tempBookPage = dc.getCurentPageFirst1() - 1; // same as lastBookPage will be
+
+        // Start playback fresh from this page and paragraph
+        TTSService.playBookPage(
+            dc.getCurentPageFirst1() - 1,
+            dc.getCurrentBook().getPath(),
+            "",
+            dc.getBookWidth(),
+            dc.getBookHeight(),
+            com.foobnix.pdf.info.model.BookCSS.get().fontSizeSp,
+            dc.getTitle()
+        );
     }
 
     public void doDoubleTap(int x, int y) {
