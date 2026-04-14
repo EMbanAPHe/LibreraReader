@@ -1551,9 +1551,9 @@ public class DocumentWrapperUI {
             LOG.e(e);
         }
 
-        // Set paragraph and lock tempBookPage so speek() won't restore from disk
-        AppSP.get().lastBookParagraph = targetParagraph;
-        AppSP.get().tempBookPage = dc.getCurentPageFirst1() - 1; // same as lastBookPage will be
+        // Set pendingParagraph - survives the TTSEngine.stop() inside playBookPage
+        // TTSService.playPage() consumes this just before calling speek()
+        TTSService.pendingParagraph = targetParagraph;
 
         // Start playback fresh from this page and paragraph
         TTSService.playBookPage(

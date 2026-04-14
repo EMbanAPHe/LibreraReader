@@ -134,10 +134,10 @@ public class TTSControlsView extends FrameLayout {
                 if (!TTSService.isTTSGranted(context)) {
                     return;
                 }
-                // Next SENTENCE: increment paragraph index, keep tempBookPage so speek() won't restore from disk
-                AppSP.get().lastBookParagraph = AppSP.get().lastBookParagraph + 1;
-                // Set tempBookPage = lastBookPage so speek() skips SharedBooks restore
-                AppSP.get().tempBookPage = AppSP.get().lastBookPage;
+                // Next SENTENCE: use pendingParagraph so it survives any internal stop() resets
+                int nextParag = AppSP.get().lastBookParagraph + 1;
+                TTSService.pendingParagraph = nextParag;
+                AppSP.get().tempBookPage = AppSP.get().lastBookPage; // also set for extra safety
                 PendingIntent nextIntent = PendingIntent.getService(context, 0,
                         new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
                         PendingIntent.FLAG_IMMUTABLE);
@@ -151,11 +151,10 @@ public class TTSControlsView extends FrameLayout {
                 if (!TTSService.isTTSGranted(context)) {
                     return;
                 }
-                // Prev SENTENCE: decrement paragraph index, keep tempBookPage so speek() won't restore from disk
-                int parag = AppSP.get().lastBookParagraph - 1;
-                AppSP.get().lastBookParagraph = Math.max(0, parag);
-                // Set tempBookPage = lastBookPage so speek() skips SharedBooks restore
-                AppSP.get().tempBookPage = AppSP.get().lastBookPage;
+                // Prev SENTENCE: use pendingParagraph so it survives any internal stop() resets
+                int prevParag = Math.max(0, AppSP.get().lastBookParagraph - 1);
+                TTSService.pendingParagraph = prevParag;
+                AppSP.get().tempBookPage = AppSP.get().lastBookPage; // also set for extra safety
                 PendingIntent prevIntent = PendingIntent.getService(context, 0,
                         new Intent(TTSNotification.TTS_PLAY, null, context, TTSService.class),
                         PendingIntent.FLAG_IMMUTABLE);

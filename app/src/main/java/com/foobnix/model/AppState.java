@@ -519,7 +519,7 @@ public class AppState {
     public float pageQuality = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? 1.6f : 1.4f;
     public int rotate = 0;
     public int rotateViewPager = 0;
-    @IgnoreHashCode public int tapzoneSize = Dips.isXLargeScreen() ? 15 : 25;
+    @IgnoreHashCode public int tapzoneSize = 0;  // 0% = no tap zones, no accidental page turns
     public transient int allocatedMemorySize = (int) MemoryUtils.RECOMENDED_MEMORY_SIZE;
     @IgnoreHashCode public boolean isScrollAnimation = true;
     @IgnoreHashCode public boolean isEnableVerticalSwipe = true;

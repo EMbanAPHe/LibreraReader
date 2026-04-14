@@ -3,11 +3,12 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="#CC1a1a1a"
-    android:paddingTop="6dip"
-    android:paddingBottom="6dip"
-    android:paddingLeft="8dip"
-    android:paddingRight="8dip"
+    android:paddingTop="8dip"
+    android:paddingBottom="8dip"
+    android:paddingLeft="6dip"
+    android:paddingRight="6dip"
     android:gravity="center_vertical"
+    android:weightSum="1"
     >
 
     <ImageView
@@ -34,7 +35,7 @@
         android:layout_width="wrap_content"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
-        android:layout_marginLeft="10dp"
+        android:layout_marginLeft="6dp"
         android:background="@drawable/bg_clickable"
         android:contentDescription="@string/previous_page"
         android:padding="2dp"
@@ -42,15 +43,24 @@
 
 
 
+    <Space
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1" />
+
     <ImageView
         android:id="@+id/ttsPlay"
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
         android:contentDescription="@string/play_pause"
-        android:layout_marginLeft="10dp"
         android:background="@drawable/bg_clickable"
         android:src="@drawable/glyphicons_175_play" />
+
+    <Space
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1" />
 
 
     <ImageView
@@ -60,7 +70,7 @@
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
-        android:layout_marginLeft="10dip"
+        android:layout_marginLeft="6dip"
         android:background="@drawable/bg_clickable"
         android:padding="2dp"
         android:src="@drawable/glyphicons_177_forward" />
@@ -72,7 +82,7 @@
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
-        android:layout_marginLeft="10dip"
+        android:layout_marginLeft="6dip"
         android:background="@drawable/bg_clickable"
         android:padding="2dp"
         android:src="@drawable/glyphicons_172_skip_to_start" />
@@ -94,7 +104,7 @@
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
-        android:layout_marginLeft="10dip"
+        android:layout_marginLeft="6dip"
         android:contentDescription="@string/close"
         android:background="@drawable/bg_clickable"
         android:padding="8dp"

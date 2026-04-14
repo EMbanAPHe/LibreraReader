@@ -1683,9 +1683,9 @@ public class HorizontalViewActivity extends AdsFragmentActivity {
 
             } else {
                 LOG.d("Click-center!", x, y);
-                handler.removeCallbacks(doShowHideWrapperControllsRunnable);
-                handler.postDelayed(doShowHideWrapperControllsRunnable, 250);
-                // Toast.makeText(this, "Click", Toast.LENGTH_SHORT).show();
+                // Single tap on center is intentionally a no-op.
+                // Double-tap handles TTS start-from-sentence.
+                // Use the book menu button in the TTS bar to access the toolbar.
             }
         } else if (ev.getMessage().equals(MessageEvent.MESSAGE_DOUBLE_TAP)) {
             handler.removeCallbacks(doShowHideWrapperControllsRunnable);

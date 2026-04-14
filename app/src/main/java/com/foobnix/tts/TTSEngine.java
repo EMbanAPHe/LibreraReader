@@ -287,7 +287,8 @@ public class TTSEngine {
         LOG.d(TAG, "Speek s", AppState.get().ttsSpeed);
         LOG.d(TAG, "Speek AppSP.get().lastBookParagraph", AppSP.get().lastBookParagraph);
 
-        if (AppState.get().ttsPauseDuration > 0 && text.contains(TxtUtils.TTS_PAUSE)) {
+        // Split into sentences regardless of pause duration (0ms = no silence, but still split)
+        if (text.contains(TxtUtils.TTS_PAUSE)) {
             String[] parts = text.split(TxtUtils.TTS_PAUSE);
             ttsEngine.playSilence(0l, TextToSpeech.QUEUE_FLUSH, mapTemp);
             for (int i = AppSP.get().lastBookParagraph; i < parts.length; i++) {

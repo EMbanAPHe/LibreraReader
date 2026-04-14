@@ -63,6 +63,13 @@ import java.util.Arrays;
 import java.util.List;
 
 @TargetApi(Build.VERSION_CODES.O) public class TTSService extends Service {
+
+    /**
+     * When >= 0, overrides AppSP.lastBookParagraph immediately before speek() is called.
+     * Set this before calling playBookPage() to start from a specific sentence.
+     * Reset to -1 after being consumed.
+     */
+    public static volatile int pendingParagraph = -1;
     public static final String EXTRA_PATH = "EXTRA_PATH";
     public static final String EXTRA_ANCHOR = "EXTRA_ANCHOR";
     public static final String EXTRA_INT = "INT";
@@ -849,6 +856,14 @@ import java.util.List;
                                  playPage(secondPart, AppSP.get().lastBookPage + 1, null);
                              }
                          });
+            }
+
+            // Consume any pending paragraph override (set by startTTSFromTap or sentence nav)
+            if (pendingParagraph >= 0) {
+                AppSP.get().lastBookParagraph = pendingParagraph;
+                AppSP.get().tempBookPage = pageNumber; // prevent speek() restore from disk
+                pendingParagraph = -1;
+                LOG.d(TAG, "pendingParagraph consumed:", AppSP.get().lastBookParagraph);
             }
 
             TTSEngine.get()
