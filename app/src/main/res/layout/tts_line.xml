@@ -43,10 +43,11 @@
 
 
 
-    <Space
+    <View
         android:layout_width="0dp"
         android:layout_height="1dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:background="@null" />
 
     <ImageView
         android:id="@+id/ttsPlay"
@@ -57,10 +58,11 @@
         android:background="@drawable/bg_clickable"
         android:src="@drawable/glyphicons_175_play" />
 
-    <Space
+    <View
         android:layout_width="0dp"
         android:layout_height="1dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:background="@null" />
 
 
     <ImageView
