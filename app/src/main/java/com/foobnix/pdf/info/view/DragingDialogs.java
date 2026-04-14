@@ -5664,6 +5664,9 @@ public class DragingDialogs {
 
                                     TintUtil.setTintImageWithAlpha(onDayColorImage, AppState.get().colorDayText);
                                     TintUtil.setTintImageWithAlpha(onNigthColorImage, AppState.get().colorNigthText);
+                                    // Apply immediately - re-render the book with new colours
+                                    AppProfile.save(controller.getActivity());
+                                    controller.restartActivity();
                                 }
                             });
                             lc.addView(t1);

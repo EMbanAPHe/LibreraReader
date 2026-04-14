@@ -43,8 +43,8 @@ public class AppSP {
     public boolean isEnableSync;
     public String syncRootID;
 
-    public String currentProfile = AppsConfig.IS_LOG ? "BETA" : "Librera";
-    public String rootPath = new File(Environment.getExternalStorageDirectory(), "Librera").toString();
+    public String currentProfile = AppsConfig.IS_LOG ? "BETA" : "LibreraEMB";
+    public String rootPath = new File(Environment.getExternalStorageDirectory(), "Librera-EMB").toString();
 
     transient SharedPreferences sp;
 

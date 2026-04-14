@@ -309,6 +309,19 @@ public class TTSControlsView extends FrameLayout {
         controller = dc;
     }
 
+    public void setBookMenuRunnable(final Runnable run) {
+        ImageView bookMenuBtn = (ImageView) view.findViewById(R.id.ttsBookMenu);
+        if (bookMenuBtn != null) {
+            TintUtil.setTintImageWithAlpha(bookMenuBtn, colorTint, 240);
+            bookMenuBtn.setVisibility(View.VISIBLE);
+            bookMenuBtn.setOnClickListener(new OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (run != null) run.run();
+                }
+            });
+        }
+    }
+
     public void addOnDialogRunnable(final Runnable run) {
         ttsDialog.setVisibility(View.VISIBLE);
         ttsDialog.setOnClickListener(new OnClickListener() {

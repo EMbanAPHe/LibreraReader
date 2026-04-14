@@ -472,9 +472,9 @@ public class DocumentWrapperUI {
     public void onSingleTap() {
         if (dc.isMusicianMode()) {
             onAutoScrollClick();
-        } else {
-            doShowHideWrapperControlls();
         }
+        // Single tap intentionally does nothing in reading mode.
+        // Double-tap handles TTS start/stop. Use the top toolbar X button to exit.
     }
 
     public void onLongPress(MotionEvent ev) {
@@ -1223,6 +1223,24 @@ public class DocumentWrapperUI {
         ttsActive = a.findViewById(R.id.ttsActive);
         ttsCurrentSentence = a.findViewById(R.id.ttsCurrentSentence);
         ttsActive.setDC(dc);
+        ttsActive.setBookMenuRunnable(new Runnable() {
+            @Override public void run() {
+                // Open the book info / share dialog (same as the book menu button in top bar)
+                ShareDialog.show(a, dc.getCurrentBook(), new Runnable() {
+                    @Override public void run() {
+                        if (dc.getCurrentBook().delete()) {
+                            TempHolder.listHash++;
+                            AppDB.get().deleteBy(dc.getCurrentBook().getPath());
+                            dc.getActivity().finish();
+                        }
+                    }
+                }, dc.getCurentPage() - 1, dc, new Runnable() {
+                    @Override public void run() {
+                        hideShow();
+                    }
+                });
+            }
+        });
         ttsActive.addOnDialogRunnable(new Runnable() {
 
             @Override
@@ -1499,43 +1517,37 @@ public class DocumentWrapperUI {
 
     /**
      * Double-tap to start TTS from the tapped sentence.
-     * Finds the word at (x,y), matches it to a sentence in the TTS paragraph list,
-     * sets lastBookParagraph to that index, then starts playback.
-     * Falls back to plain start/stop if no text is found at the tap point.
+     * Uses the Y-coordinate fraction to estimate which paragraph in the TTS queue
+     * corresponds to the tapped position, then starts playback from that point.
+     *
+     * The page HTML is split into TTS_PAUSE-delimited paragraphs (same split as speek()).
+     * Y fraction within the view maps linearly to paragraph index.
      */
     private void startTTSFromTap(int x, int y) {
         try {
-            // Find the word tapped using the existing processLongTap single-tap path
-            android.view.MotionEvent ev = android.view.MotionEvent.obtain(0, 0,
-                    android.view.MotionEvent.ACTION_DOWN, x, y, 0);
-            String tappedWord = dc.processLongTap(true, ev, ev, false);
-            ev.recycle();
-
-            if (TxtUtils.isNotEmpty(tappedWord)) {
-                // Get the current page HTML and split it into TTS paragraphs
-                String pageHTML = dc.getPageHtml();
-                if (TxtUtils.isNotEmpty(pageHTML)) {
-                    pageHTML = com.foobnix.android.utils.TxtUtils.replaceHTMLforTTS(pageHTML);
-                    String[] parts = pageHTML.split(com.foobnix.android.utils.TxtUtils.TTS_PAUSE);
-                    String word = tappedWord.trim().toLowerCase();
-                    int foundIdx = -1;
-                    for (int i = 0; i < parts.length; i++) {
-                        if (parts[i].toLowerCase().contains(word)) {
-                            foundIdx = i;
-                            break;
-                        }
-                    }
-                    if (foundIdx >= 0) {
-                        AppSP.get().lastBookParagraph = foundIdx;
-                        // Reset tempBookPage so speek() restores from foundIdx
+            String pageHTML = dc.getPageHtml();
+            if (TxtUtils.isNotEmpty(pageHTML)) {
+                pageHTML = TxtUtils.replaceHTMLforTTS(pageHTML);
+                String[] parts = pageHTML.split(TxtUtils.TTS_PAUSE);
+                if (parts.length > 1) {
+                    // Estimate which paragraph corresponds to the tap Y position.
+                    // Use the view height as the total page height proxy.
+                    int viewHeight = a.getWindow().getDecorView().getHeight();
+                    if (viewHeight > 0) {
+                        float fraction = Math.max(0f, Math.min(1f, (float) y / viewHeight));
+                        int estimated = (int) (fraction * parts.length);
+                        estimated = Math.min(estimated, parts.length - 1);
+                        AppSP.get().lastBookParagraph = estimated;
+                        // Reset tempBookPage so speek() picks up the new paragraph index
                         AppSP.get().tempBookPage = -1;
+                        LOG.d("TTS startTTSFromTap", "y", y, "fraction", fraction,
+                              "paragraph", estimated, "/", parts.length);
                     }
                 }
             }
         } catch (Exception e) {
             LOG.e(e);
         }
-        // Always start/stop TTS regardless of whether we found the sentence
         TTSService.playPause(dc.getActivity(), dc);
     }
 

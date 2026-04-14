@@ -11,6 +11,16 @@
     >
 
     <ImageView
+        android:id="@+id/ttsBookMenu"
+        android:layout_width="@dimen/wh_tts_button"
+        android:layout_height="@dimen/wh_tts_button"
+        android:background="@drawable/bg_clickable"
+        android:padding="4dip"
+        android:contentDescription="@string/book_menu"
+        android:src="@drawable/glyphicons_588_book_open_text"
+        android:visibility="visible" />
+
+    <ImageView
         android:id="@+id/ttsDialog"
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
