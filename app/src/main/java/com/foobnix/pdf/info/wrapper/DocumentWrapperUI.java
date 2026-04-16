@@ -450,14 +450,18 @@ public class DocumentWrapperUI {
                 }
             }
 
-            // Canvas-level highlight: search for first 4 words of the sentence.
-            // Using a short prefix improves match rate since page.texts contains raw
-            // unprocessed words while event.text has been TTS-preprocessed.
+            // Canvas-level highlight: search for words of the sentence on the current page.
+            //
+            // We use up to 10 stripped words from the TTS-processed sentence as the query.
+            // 10 words is long enough to uniquely identify a sentence (avoids false matches
+            // when the same short phrase like "She was alone" appears twice on a page) while
+            // still being short enough that minor TTS preprocessing differences don't prevent
+            // any match at all. Strip punctuation so "alone," matches the word "alone" in the
+            // page's TextWord list.
             final String rawText = event.text != null ? event.text.trim() : "";
             if (!rawText.isEmpty() && dc != null) {
-                // Extract first 4 meaningful words for robust matching
                 String[] words = rawText.split("\\s+");
-                int wordCount = Math.min(4, words.length);
+                int wordCount = Math.min(10, words.length);
                 StringBuilder sb = new StringBuilder();
                 for (int wi = 0; wi < wordCount; wi++) {
                     String w = words[wi].replaceAll("[^\\p{L}\\p{N}]", "");
@@ -473,7 +477,6 @@ public class DocumentWrapperUI {
                     dc.doSearch(searchText, new ResultResponse<Integer>() {
                         @Override
                         public boolean onResultRecive(Integer result) {
-                            // Stop search once we find on current page
                             TempHolder.isSeaching = (result == null || result >= 0);
                             return true;
                         }
