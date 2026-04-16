@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     IN-APP TTS CONTROLS BAR — inflated by TTSControlsView.java only.
-    NOT used by RemoteViews / notifications — <View> spacers are safe here.
-    Must contain ALL IDs that TTSControlsView.java references:
+    NOT used by RemoteViews / notifications. <View> spacers are safe here.
+
+    Layout strategy: the outer row is split into three equal-weight sections
+    (left group | play button | right group). Because both side groups have
+    weight="1", the play button is always mathematically centred regardless
+    of how many icons are visible inside each group.
+
+    Must contain ALL IDs referenced by TTSControlsView.java:
       ttsBookMenu, ttsDialog, ttsPrev, ttsPlay, ttsNext,
       ttsPrevTrack, ttsNextTrack, ttsStop,
       trackName, layoutMp3, seekCurrent, seekMp3, seekMax
-    Does NOT include tts_line.xml — fully standalone.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -65,7 +70,10 @@
             android:textSize="@dimen/text_subtitle" />
     </LinearLayout>
 
-    <!-- Playback controls row -->
+    <!-- Playback controls row.
+         Three sections with weightSum="2":
+           left group  (weight=1) | ttsPlay (weight=0) | right group (weight=1)
+         Both side groups have equal weight so the play button is always centred. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -75,101 +83,121 @@
         android:paddingBottom="4dip"
         android:weightSum="2">
 
-        <!-- Left anchor: book menu + settings + prev -->
-        <ImageView
-            android:id="@+id/ttsBookMenu"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/book_menu"
-            android:padding="4dip"
-            android:src="@drawable/glyphicons_588_book_open_text"
-            android:visibility="visible" />
-
-        <ImageView
-            android:id="@+id/ttsDialog"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_marginLeft="6dp"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/settings"
-            android:padding="2dip"
-            android:src="@drawable/glyphicons_smileys_100_headphones" />
-
-        <ImageView
-            android:id="@+id/ttsPrev"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_gravity="center"
-            android:layout_marginLeft="6dp"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/previous_page"
-            android:padding="2dp"
-            android:src="@drawable/glyphicons_173_rewind" />
-
-        <!-- Flexible spacer — centres the play button -->
-        <View
+        <!-- LEFT GROUP (weight=1): book menu + settings + prev + invisible placeholder -->
+        <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center_vertical|start"
+            android:orientation="horizontal">
 
+            <ImageView
+                android:id="@+id/ttsBookMenu"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="@string/book_menu"
+                android:padding="4dip"
+                android:src="@drawable/glyphicons_588_book_open_text"
+                android:visibility="visible" />
+
+            <ImageView
+                android:id="@+id/ttsDialog"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_marginLeft="6dp"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="@string/settings"
+                android:padding="2dip"
+                android:src="@drawable/glyphicons_smileys_100_headphones" />
+
+            <ImageView
+                android:id="@+id/ttsPrev"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_gravity="center"
+                android:layout_marginLeft="6dp"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="@string/previous_page"
+                android:padding="2dp"
+                android:src="@drawable/glyphicons_173_rewind" />
+
+            <!-- Invisible placeholder to balance the right group's 4th slot (ttsStop).
+                 Uses visibility="invisible" so it occupies space without being shown.
+                 This guarantees the left and right groups are the same pixel width,
+                 keeping ttsPlay exactly centred at all times. -->
+            <ImageView
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_marginLeft="6dp"
+                android:visibility="invisible"
+                android:contentDescription="" />
+
+        </LinearLayout>
+
+        <!-- CENTRE: play/pause button — zero weight, natural size -->
         <ImageView
             android:id="@+id/ttsPlay"
             android:layout_width="@dimen/wh_tts_button"
             android:layout_height="@dimen/wh_tts_button"
+            android:layout_weight="0"
             android:layout_gravity="center"
             android:background="@drawable/bg_clickable"
             android:contentDescription="@string/play_pause"
             android:src="@drawable/glyphicons_175_play" />
 
-        <!-- Flexible spacer — mirrors left side -->
-        <View
+        <!-- RIGHT GROUP (weight=1): next + prevTrack + nextTrack + stop -->
+        <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center_vertical|end"
+            android:orientation="horizontal">
 
-        <!-- Right anchor: next + track controls + stop -->
-        <ImageView
-            android:id="@+id/ttsNext"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_gravity="center"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/next_page"
-            android:padding="2dp"
-            android:src="@drawable/glyphicons_177_forward" />
+            <ImageView
+                android:id="@+id/ttsNext"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="@string/next_page"
+                android:padding="2dp"
+                android:src="@drawable/glyphicons_177_forward" />
 
-        <ImageView
-            android:id="@+id/ttsPrevTrack"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_gravity="center"
-            android:layout_marginLeft="6dip"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/next_track"
-            android:padding="2dp"
-            android:src="@drawable/glyphicons_172_skip_to_start" />
+            <!-- MP3 track navigation — gone in book mode, visible in playlist mode -->
+            <ImageView
+                android:id="@+id/ttsPrevTrack"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_gravity="center"
+                android:layout_marginLeft="6dip"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="@string/next_track"
+                android:padding="2dp"
+                android:src="@drawable/glyphicons_172_skip_to_start" />
 
-        <ImageView
-            android:id="@+id/ttsNextTrack"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_gravity="center"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/previous_track"
-            android:padding="2dp"
-            android:src="@drawable/glyphicons_178_skip_to_end" />
+            <ImageView
+                android:id="@+id/ttsNextTrack"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="@string/previous_track"
+                android:padding="2dp"
+                android:src="@drawable/glyphicons_178_skip_to_end" />
 
-        <ImageView
-            android:id="@+id/ttsStop"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_gravity="center"
-            android:layout_marginLeft="6dip"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/close"
-            android:padding="8dp"
-            android:src="@drawable/glyphicons_599_menu_close" />
+            <ImageView
+                android:id="@+id/ttsStop"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_gravity="center"
+                android:layout_marginLeft="6dip"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="@string/close"
+                android:padding="8dp"
+                android:src="@drawable/glyphicons_599_menu_close" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
