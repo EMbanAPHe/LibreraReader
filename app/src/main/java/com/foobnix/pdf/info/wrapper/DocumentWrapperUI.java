@@ -447,7 +447,7 @@ public class DocumentWrapperUI {
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onTtsHighlight(TtsHighlightEvent event) {
         try {
-            // Update the sentence display bar
+            // Update the sentence display bar with the TTS-processed text (for speech)
             if (ttsCurrentSentence != null) {
                 String sentence = event.text != null ? event.text.trim() : "";
                 if (!sentence.isEmpty()) {
@@ -458,14 +458,48 @@ public class DocumentWrapperUI {
                 }
             }
 
-            // Canvas-level highlight: search for up to 10 words of the current sentence.
-            // 10 words is long enough to uniquely identify a sentence on the page (prevents
-            // matching a short repeated phrase like "She was alone" when it appears twice)
-            // and covers most or all of a short sentence so the highlight spans the full text.
-            final String rawText = event.text != null ? event.text.trim() : "";
-            if (!rawText.isEmpty() && dc != null) {
-                String[] words = rawText.split("\\s+");
-                int wordCount = Math.min(10, words.length);
+            if (dc == null) return;
+
+            // Canvas highlight: we need text that matches the RAW page TextWords.
+            //
+            // Problem: event.text has user TTS replacements applied (e.g. "n'"→" " turns
+            // "wasn't" into "was t"). PageSearcher strips \W from both sides before comparing,
+            // so "was t" → "wast" vs page "wasn't" → "wasnt" — no match → no highlight.
+            //
+            // Fix: re-generate the sentence text from raw page HTML at event.paragIndex,
+            // with user replacements temporarily disabled. This gives us text that matches
+            // what's actually rendered on the page.
+            String searchSource = "";
+            try {
+                String rawHtml = dc.getPageHtml();
+                if (TxtUtils.isNotEmpty(rawHtml)) {
+                    boolean savedReplacements = AppState.get().isEnalbeTTSReplacements;
+                    AppState.get().isEnalbeTTSReplacements = false;
+                    String processed = TxtUtils.replaceHTMLforTTS(rawHtml);
+                    AppState.get().isEnalbeTTSReplacements = savedReplacements;
+
+                    String[] rawParts = processed.split(TxtUtils.TTS_PAUSE);
+                    if (event.paragIndex >= 0 && event.paragIndex < rawParts.length) {
+                        searchSource = rawParts[event.paragIndex]
+                                .replaceAll("<[^>]+>", " ")
+                                .replaceAll("\\s+", " ")
+                                .trim();
+                    }
+                }
+            } catch (Exception ex) {
+                LOG.e(ex);
+            }
+
+            // Fall back to event.text if raw lookup failed
+            if (searchSource.isEmpty()) {
+                searchSource = event.text != null ? event.text.trim() : "";
+            }
+
+            if (!searchSource.isEmpty()) {
+                String[] words = searchSource.split("\\s+");
+                // 6 words: enough to uniquely identify the sentence without risking that
+                // a later word was mangled by punctuation stripping or tag removal.
+                int wordCount = Math.min(6, words.length);
                 StringBuilder sb = new StringBuilder();
                 for (int wi = 0; wi < wordCount; wi++) {
                     String w = words[wi].replaceAll("[^\\p{L}\\p{N}]", "");
@@ -1545,46 +1579,46 @@ public class DocumentWrapperUI {
                 String[] parts = pageHTML.split(TxtUtils.TTS_PAUSE);
                 if (parts.length > 0) {
 
-                    // Consume the word captured by AdvGuestureDetector.onDoubleTap().
-                    // Derived from the rendering engine's exact TextWord bounding boxes.
+                    // Step 1: Y-fraction gives a rough estimate of which paragraph was tapped.
+                    // It's approximate but directionally reliable.
+                    int viewHeight = a.getWindow().getDecorView().getHeight();
+                    int yGuess = 0;
+                    if (viewHeight > 0) {
+                        float fraction = Math.max(0f, Math.min(0.99f, (float) y / viewHeight));
+                        yGuess = Math.min((int) (fraction * parts.length), parts.length - 1);
+                    }
+
+                    // Step 2: use the word at the tap position to refine the estimate.
+                    // Find ALL paragraphs containing the tapped word and pick the one
+                    // whose index is closest to yGuess. This prevents jumping to the first
+                    // occurrence of a common word that appears earlier on the page.
                     String tapWord = pendingTapWord;
                     pendingTapWord = null;
 
                     if (tapWord != null && !tapWord.isEmpty()) {
-                        // Walk the TTS split array to find the first paragraph containing
-                        // the tapped word. Try whole-word match first to avoid "alone"
-                        // matching "alongside", then fall back to substring.
-                        boolean found = false;
+                        int bestIndex = yGuess;
+                        int bestDistance = Integer.MAX_VALUE;
+                        final String escaped = java.util.regex.Pattern.quote(tapWord);
+
                         for (int i = 0; i < parts.length; i++) {
                             String partClean = parts[i].toLowerCase()
                                     .replaceAll("[^\\p{L}\\p{N}\\s]", " ");
-                            if (partClean.matches(".*(?:^|\\s)" + tapWord + "(?:\\s|$).*")) {
-                                targetParagraph = i;
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) {
-                            for (int i = 0; i < parts.length; i++) {
-                                String partClean = parts[i].toLowerCase()
-                                        .replaceAll("[^\\p{L}\\p{N}\\s]", " ");
-                                if (partClean.contains(tapWord)) {
-                                    targetParagraph = i;
-                                    break;
+                            // Prefer whole-word match; fall back to substring
+                            if (partClean.matches(".*(?:^|\\s)" + escaped + "(?:\\s|$).*")
+                                    || partClean.contains(tapWord)) {
+                                int dist = Math.abs(i - yGuess);
+                                if (dist < bestDistance) {
+                                    bestDistance = dist;
+                                    bestIndex = i;
                                 }
                             }
                         }
-                        LOG.d("TTS tap word", tapWord, "para", targetParagraph);
-
+                        targetParagraph = bestIndex;
+                        LOG.d("TTS tap", "word=", tapWord, "yGuess=", yGuess, "→ para=", targetParagraph);
                     } else {
-                        // Fallback: Y-fraction for image/horizontal-mode pages where
-                        // processLongTap may not return text.
-                        int viewHeight = a.getWindow().getDecorView().getHeight();
-                        if (viewHeight > 0) {
-                            float fraction = Math.max(0f, Math.min(0.99f, (float) y / viewHeight));
-                            targetParagraph = Math.min((int) (fraction * parts.length), parts.length - 1);
-                        }
-                        LOG.d("TTS tap Y-fallback", "y=", y, "para=", targetParagraph, "/", parts.length);
+                        // No word (image/horizontal mode): use Y-fraction directly
+                        targetParagraph = yGuess;
+                        LOG.d("TTS tap Y-only", "y=", y, "para=", targetParagraph, "/", parts.length);
                     }
                 }
             }
