@@ -102,10 +102,11 @@ public class AppProfile {
         }
         AppSP.get()
              .init(c);
-
-        if (!Android6.canWrite(c)) {
-            return;
-        }
+        // Do NOT bail on !Android6.canWrite() here.
+        // AppSP.init() already redirected rootPath to getExternalFilesDir() when
+        // MANAGE_EXTERNAL_STORAGE is unavailable. That path is always writable.
+        // Bailing here would leave all sync folder paths null and skip JSON loading,
+        // causing settings to reset to defaults on every launch.
 
         if (profile.equals(getCurrent())) {
             LOG.d("AppProfile skip", profile);
@@ -208,9 +209,14 @@ public class AppProfile {
         if (a == null) {
             return;
         }
-        if (!Android6.canWrite(a)) {
-            return;
-        }
+        // Always persist SharedPreferences — this works regardless of storage permission.
+        AppSP.get().save();
+
+        // Do NOT bail on !Android6.canWrite() here.
+        // AppSP.init() already redirected rootPath to getExternalFilesDir() when
+        // MANAGE_EXTERNAL_STORAGE is unavailable. That path is always writable.
+        // Bailing here would mean JSON files (AppState, BookCSS) are never written,
+        // so all settings backed by those files reset to defaults on every relaunch.
         if (TxtUtils.isNotEmpty(profile)) {
             DragingPopup.saveCache(a);
             PasswordState.get()
@@ -219,8 +225,6 @@ public class AppProfile {
                     .save(a);
             BookCSS.get()
                    .save(a);
-            AppSP.get()
-                 .save();
         }
     }
 

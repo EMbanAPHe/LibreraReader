@@ -1,23 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    NOTIFICATION USE ONLY — included by notification_tts_line_small.xml via <include>.
+    RemoteViews has a strict widget allowlist. DO NOT add <View>, <Space>, or any
+    widget not in that list. Spacers/centering must not be done with <View> here.
+    All in-app TTS bar customisations live in tts_mp3_line.xml instead.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="#CC1a1a1a"
-    android:paddingTop="8dip"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
     android:paddingBottom="8dip"
     android:paddingLeft="6dip"
     android:paddingRight="6dip"
-    android:gravity="center_vertical"
-    android:weightSum="1"
-    >
+    android:paddingTop="8dip">
 
     <ImageView
         android:id="@+id/ttsBookMenu"
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:background="@drawable/bg_clickable"
-        android:padding="4dip"
         android:contentDescription="@string/book_menu"
+        android:padding="4dip"
         android:src="@drawable/glyphicons_588_book_open_text"
         android:visibility="visible" />
 
@@ -26,13 +31,13 @@
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:background="@drawable/bg_clickable"
-        android:padding="2dip"
         android:contentDescription="@string/settings"
+        android:padding="2dip"
         android:src="@drawable/glyphicons_smileys_100_headphones" />
 
     <ImageView
         android:id="@+id/ttsPrev"
-        android:layout_width="wrap_content"
+        android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
         android:layout_marginLeft="6dp"
@@ -41,65 +46,50 @@
         android:padding="2dp"
         android:src="@drawable/glyphicons_173_rewind" />
 
-
-
-    <View
-        android:layout_width="0dp"
-        android:layout_height="1dp"
-        android:layout_weight="1"
-        android:background="@null" />
+    <!-- No <View> spacers here — RemoteViews cannot inflate android.view.View.
+         Play button centering is handled in tts_mp3_line.xml for the in-app bar. -->
 
     <ImageView
         android:id="@+id/ttsPlay"
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
-        android:contentDescription="@string/play_pause"
+        android:layout_marginLeft="6dp"
         android:background="@drawable/bg_clickable"
+        android:contentDescription="@string/play_pause"
         android:src="@drawable/glyphicons_175_play" />
 
-    <View
-        android:layout_width="0dp"
-        android:layout_height="1dp"
-        android:layout_weight="1"
-        android:background="@null" />
-
-
     <ImageView
-        android:contentDescription="@string/next_page"
-
         android:id="@+id/ttsNext"
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
-        android:layout_marginLeft="6dip"
+        android:layout_marginLeft="6dp"
         android:background="@drawable/bg_clickable"
+        android:contentDescription="@string/next_page"
         android:padding="2dp"
         android:src="@drawable/glyphicons_177_forward" />
-    
-    
+
     <ImageView
         android:id="@+id/ttsPrevTrack"
-        android:contentDescription="@string/next_track"
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
         android:layout_marginLeft="6dip"
         android:background="@drawable/bg_clickable"
+        android:contentDescription="@string/next_track"
         android:padding="2dp"
         android:src="@drawable/glyphicons_172_skip_to_start" />
-    
-    
+
     <ImageView
-        android:contentDescription="@string/previous_track"
         android:id="@+id/ttsNextTrack"
         android:layout_width="@dimen/wh_tts_button"
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
         android:background="@drawable/bg_clickable"
+        android:contentDescription="@string/previous_track"
         android:padding="2dp"
         android:src="@drawable/glyphicons_178_skip_to_end" />
-    
 
     <ImageView
         android:id="@+id/ttsStop"
@@ -107,8 +97,8 @@
         android:layout_height="@dimen/wh_tts_button"
         android:layout_gravity="center"
         android:layout_marginLeft="6dip"
-        android:contentDescription="@string/close"
         android:background="@drawable/bg_clickable"
+        android:contentDescription="@string/close"
         android:padding="8dp"
         android:src="@drawable/glyphicons_599_menu_close" />
 
