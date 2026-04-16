@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     NOTIFICATION USE ONLY — included by notification_tts_line_small.xml via <include>.
-    RemoteViews has a strict widget allowlist. DO NOT add <View>, <Space>, or any
-    widget not in that list. Spacers/centering must not be done with <View> here.
-    All in-app TTS bar customisations live in tts_mp3_line.xml instead.
+    RemoteViews allowlist forbids <View> and <Space>. Do NOT add them here.
+    All in-app TTS bar customisation lives in tts_mp3_line.xml.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -45,9 +44,6 @@
         android:contentDescription="@string/previous_page"
         android:padding="2dp"
         android:src="@drawable/glyphicons_173_rewind" />
-
-    <!-- No <View> spacers here — RemoteViews cannot inflate android.view.View.
-         Play button centering is handled in tts_mp3_line.xml for the in-app bar. -->
 
     <ImageView
         android:id="@+id/ttsPlay"

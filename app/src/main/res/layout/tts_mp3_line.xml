@@ -1,17 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    IN-APP TTS CONTROLS BAR — inflated by TTSControlsView.java only.
-    NOT used by RemoteViews / notifications. <View> spacers are safe here.
-
-    Layout strategy: the outer row is split into three equal-weight sections
-    (left group | play button | right group). Because both side groups have
-    weight="1", the play button is always mathematically centred regardless
-    of how many icons are visible inside each group.
-
-    Must contain ALL IDs referenced by TTSControlsView.java:
-      ttsBookMenu, ttsDialog, ttsPrev, ttsPlay, ttsNext,
-      ttsPrevTrack, ttsNextTrack, ttsStop,
-      trackName, layoutMp3, seekCurrent, seekMp3, seekMax
+    IN-APP TTS BAR — inflated by TTSControlsView.java only. Never used by RemoteViews.
+    Layout: three equal-weight sections (left | play | right). Both side groups have
+    weight=1 so the play button is always mathematically centred. An invisible placeholder
+    in the left group mirrors the stop button on the right to keep widths equal.
+    Must contain all IDs referenced by TTSControlsView.java.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -21,20 +14,19 @@
     android:orientation="vertical"
     android:padding="4dip">
 
-    <!-- MP3 track name — hidden for books, shown for MP3 playlists -->
+    <!-- MP3 track name: hidden for books, shown for MP3 playlists -->
     <TextView
         android:id="@+id/trackName"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:layout_gravity="center"
         android:padding="8dip"
         android:singleLine="true"
-        android:textStyle="bold"
         android:text="1 Track.mp3"
+        android:textStyle="bold"
         android:visibility="gone" />
 
-    <!-- MP3 seek row — hidden for books -->
+    <!-- MP3 seek row: hidden for books -->
     <LinearLayout
         android:id="@+id/layoutMp3"
         android:layout_width="match_parent"
@@ -49,13 +41,12 @@
             android:layout_height="wrap_content"
             android:layout_marginLeft="4dip"
             android:layout_marginRight="4dip"
-            android:layout_weight="0"
             android:text="00:10"
             android:textSize="@dimen/text_subtitle" />
 
         <SeekBar
             android:id="@+id/seekMp3"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1" />
 
@@ -65,25 +56,21 @@
             android:layout_height="wrap_content"
             android:layout_marginLeft="4dip"
             android:layout_marginRight="4dip"
-            android:layout_weight="0"
             android:text="5:45"
             android:textSize="@dimen/text_subtitle" />
     </LinearLayout>
 
-    <!-- Playback controls row.
-         Three sections with weightSum="2":
-           left group  (weight=1) | ttsPlay (weight=0) | right group (weight=1)
-         Both side groups have equal weight so the play button is always centred. -->
+    <!-- Controls row: left(w=1) | play(w=0) | right(w=1) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingTop="4dip"
         android:paddingBottom="4dip"
+        android:paddingTop="4dip"
         android:weightSum="2">
 
-        <!-- LEFT GROUP (weight=1): book menu + settings + prev + invisible placeholder -->
+        <!-- LEFT: book-menu + settings + prev + invisible balancer -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -98,8 +85,7 @@
                 android:background="@drawable/bg_clickable"
                 android:contentDescription="@string/book_menu"
                 android:padding="4dip"
-                android:src="@drawable/glyphicons_588_book_open_text"
-                android:visibility="visible" />
+                android:src="@drawable/glyphicons_588_book_open_text" />
 
             <ImageView
                 android:id="@+id/ttsDialog"
@@ -122,31 +108,28 @@
                 android:padding="2dp"
                 android:src="@drawable/glyphicons_173_rewind" />
 
-            <!-- Invisible placeholder to balance the right group's 4th slot (ttsStop).
-                 Uses visibility="invisible" so it occupies space without being shown.
-                 This guarantees the left and right groups are the same pixel width,
-                 keeping ttsPlay exactly centred at all times. -->
+            <!-- Invisible placeholder balances ttsStop on the right -->
             <ImageView
                 android:layout_width="@dimen/wh_tts_button"
                 android:layout_height="@dimen/wh_tts_button"
                 android:layout_marginLeft="6dp"
-                android:visibility="invisible"
-                android:contentDescription="" />
+                android:contentDescription=""
+                android:visibility="invisible" />
 
         </LinearLayout>
 
-        <!-- CENTRE: play/pause button — zero weight, natural size -->
+        <!-- CENTRE: play/pause -->
         <ImageView
             android:id="@+id/ttsPlay"
             android:layout_width="@dimen/wh_tts_button"
             android:layout_height="@dimen/wh_tts_button"
-            android:layout_weight="0"
             android:layout_gravity="center"
+            android:layout_weight="0"
             android:background="@drawable/bg_clickable"
             android:contentDescription="@string/play_pause"
             android:src="@drawable/glyphicons_175_play" />
 
-        <!-- RIGHT GROUP (weight=1): next + prevTrack + nextTrack + stop -->
+        <!-- RIGHT: next + prevTrack + nextTrack + stop -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -164,7 +147,6 @@
                 android:padding="2dp"
                 android:src="@drawable/glyphicons_177_forward" />
 
-            <!-- MP3 track navigation — gone in book mode, visible in playlist mode -->
             <ImageView
                 android:id="@+id/ttsPrevTrack"
                 android:layout_width="@dimen/wh_tts_button"

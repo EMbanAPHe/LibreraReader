@@ -256,6 +256,14 @@ public class DocumentWrapperUI {
     View line1, line2, lineFirst, lineClose, closeTop, musicButtonPanel, parentParent, documentTitleBar;
     TTSControlsView ttsActive;
     TextView ttsCurrentSentence;
+    /**
+     * Set by AdvGuestureDetector.onDoubleTap() before calling docCtrl.onDoubleTap().
+     * Contains the stripped lowercase word under the user's double-tap, derived from
+     * the rendering engine's exact TextWord bounding boxes. startTTSFromTap() reads
+     * this to locate the correct TTS paragraph, then clears it immediately.
+     * Falls back to Y-fraction when null (e.g. horizontal/image-mode pages).
+     */
+    public static volatile String pendingTapWord = null;
     SeekBar seekBar, speedSeekBar;
     FrameLayout anchor;
     public View.OnClickListener onShowContext = new View.OnClickListener() {
@@ -450,14 +458,10 @@ public class DocumentWrapperUI {
                 }
             }
 
-            // Canvas-level highlight: search for words of the sentence on the current page.
-            //
-            // We use up to 10 stripped words from the TTS-processed sentence as the query.
-            // 10 words is long enough to uniquely identify a sentence (avoids false matches
-            // when the same short phrase like "She was alone" appears twice on a page) while
-            // still being short enough that minor TTS preprocessing differences don't prevent
-            // any match at all. Strip punctuation so "alone," matches the word "alone" in the
-            // page's TextWord list.
+            // Canvas-level highlight: search for up to 10 words of the current sentence.
+            // 10 words is long enough to uniquely identify a sentence on the page (prevents
+            // matching a short repeated phrase like "She was alone" when it appears twice)
+            // and covers most or all of a short sentence so the highlight spans the full text.
             final String rawText = event.text != null ? event.text.trim() : "";
             if (!rawText.isEmpty() && dc != null) {
                 String[] words = rawText.split("\\s+");
@@ -1540,13 +1544,47 @@ public class DocumentWrapperUI {
                 pageHTML = TxtUtils.replaceHTMLforTTS(pageHTML);
                 String[] parts = pageHTML.split(TxtUtils.TTS_PAUSE);
                 if (parts.length > 0) {
-                    int viewHeight = a.getWindow().getDecorView().getHeight();
-                    if (viewHeight > 0) {
-                        float fraction = Math.max(0f, Math.min(0.99f, (float) y / viewHeight));
-                        targetParagraph = (int) (fraction * parts.length);
-                        targetParagraph = Math.min(targetParagraph, parts.length - 1);
-                        LOG.d("TTS tap", "y=", y, "frac=", fraction,
-                              "para=", targetParagraph, "/", parts.length);
+
+                    // Consume the word captured by AdvGuestureDetector.onDoubleTap().
+                    // Derived from the rendering engine's exact TextWord bounding boxes.
+                    String tapWord = pendingTapWord;
+                    pendingTapWord = null;
+
+                    if (tapWord != null && !tapWord.isEmpty()) {
+                        // Walk the TTS split array to find the first paragraph containing
+                        // the tapped word. Try whole-word match first to avoid "alone"
+                        // matching "alongside", then fall back to substring.
+                        boolean found = false;
+                        for (int i = 0; i < parts.length; i++) {
+                            String partClean = parts[i].toLowerCase()
+                                    .replaceAll("[^\\p{L}\\p{N}\\s]", " ");
+                            if (partClean.matches(".*(?:^|\\s)" + tapWord + "(?:\\s|$).*")) {
+                                targetParagraph = i;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            for (int i = 0; i < parts.length; i++) {
+                                String partClean = parts[i].toLowerCase()
+                                        .replaceAll("[^\\p{L}\\p{N}\\s]", " ");
+                                if (partClean.contains(tapWord)) {
+                                    targetParagraph = i;
+                                    break;
+                                }
+                            }
+                        }
+                        LOG.d("TTS tap word", tapWord, "para", targetParagraph);
+
+                    } else {
+                        // Fallback: Y-fraction for image/horizontal-mode pages where
+                        // processLongTap may not return text.
+                        int viewHeight = a.getWindow().getDecorView().getHeight();
+                        if (viewHeight > 0) {
+                            float fraction = Math.max(0f, Math.min(0.99f, (float) y / viewHeight));
+                            targetParagraph = Math.min((int) (fraction * parts.length), parts.length - 1);
+                        }
+                        LOG.d("TTS tap Y-fallback", "y=", y, "para=", targetParagraph, "/", parts.length);
                     }
                 }
             }
@@ -1554,11 +1592,10 @@ public class DocumentWrapperUI {
             LOG.e(e);
         }
 
-        // Set pendingParagraph - survives the TTSEngine.stop() inside playBookPage
-        // TTSService.playPage() consumes this just before calling speek()
+        // pendingParagraph survives the TTSEngine.stop() inside playBookPage.
+        // TTSService.playPage() consumes it just before calling speek().
         TTSService.pendingParagraph = targetParagraph;
 
-        // Start playback fresh from this page and paragraph
         TTSService.playBookPage(
             dc.getCurentPageFirst1() - 1,
             dc.getCurrentBook().getPath(),

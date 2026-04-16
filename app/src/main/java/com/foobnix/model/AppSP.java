@@ -13,6 +13,7 @@ import java.io.File;
 
 public class AppSP {
 
+
     private static AppSP instance = new AppSP();
     public String lastBookPath;
 
@@ -28,7 +29,7 @@ public class AppSP {
     public boolean isLocked = false;
     public boolean isFirstTimeVertical = true;
     public boolean isFirstTimeHorizontal = true;
-
+    
     public int readingMode = AppState.READING_MODE_BOOK;
     public long syncTime;
     public int syncTimeStatus;
@@ -48,6 +49,8 @@ public class AppSP {
 
     transient SharedPreferences sp;
 
+
+
     public long interstitialLoadAdTime = 0;
     public long interstitialAdShowTime = 0;
 
@@ -64,17 +67,12 @@ public class AppSP {
 
         // On Android 11+ without MANAGE_EXTERNAL_STORAGE, Android6.canWrite() returns
         // false even though getExternalFilesDir() is always writable without any special
-        // permission. When canWrite() is false, redirect rootPath to the app-scoped
-        // external files directory so AppProfile can load and save JSON settings.
-        //
-        // The redirect is applied in memory only — not persisted to SharedPreferences —
-        // so if the user later grants MANAGE_EXTERNAL_STORAGE the original external path
-        // will be used on the next launch instead.
+        // permission. Redirect rootPath in memory so AppProfile can load/save JSON.
+        // Not persisted — if the user later grants the permission the original external
+        // path is used on next launch.
         if (!Android6.canWrite(c)) {
             File fallback = c.getExternalFilesDir("Librera-EMB");
             if (fallback == null) {
-                // getExternalFilesDir returns null if external storage is unavailable;
-                // fall back to internal app files dir as a last resort.
                 fallback = new File(c.getFilesDir(), "Librera-EMB");
             }
             rootPath = fallback.getAbsolutePath();
@@ -83,10 +81,13 @@ public class AppSP {
 
     public void load() {
         Objects.loadFromSp(instance, sp);
+
     }
 
     public void save() {
         Objects.saveToSP(instance, sp);
+
     }
+
 
 }

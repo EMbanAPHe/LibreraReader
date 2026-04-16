@@ -18,6 +18,7 @@ import com.foobnix.pdf.info.R;
 import com.foobnix.pdf.info.model.AnnotationType;
 import com.foobnix.pdf.info.view.BrightnessHelper;
 import com.foobnix.pdf.info.wrapper.DocumentController;
+import com.foobnix.pdf.info.wrapper.DocumentWrapperUI;
 import com.foobnix.pdf.search.activity.msg.MessagePageXY;
 
 import org.ebookdroid.BookType;
@@ -122,6 +123,19 @@ public class AdvGuestureDetector extends SimpleOnGestureListener implements IMul
     @Override
     public boolean onDoubleTap(final MotionEvent e) {
         if (clickUtils.isClickCenter(e.getX(), e.getY())) {
+            // Capture the word under the tap using the rendering engine's exact TextWord
+            // bounding boxes. Far more reliable than Y-fraction paragraph estimation.
+            // DocumentWrapperUI.startTTSFromTap() reads this to find the right sentence.
+            try {
+                String raw = avc.processLongTap(true, e, e, false);
+                if (raw != null) {
+                    raw = raw.trim().replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
+                }
+                DocumentWrapperUI.pendingTapWord = (raw != null && !raw.isEmpty()) ? raw : null;
+            } catch (Exception ex) {
+                DocumentWrapperUI.pendingTapWord = null;
+                LOG.e(ex);
+            }
             docCtrl.onDoubleTap((int) e.getX(), (int) e.getY());
             // listener.onZoomInc();
         }

@@ -1692,9 +1692,8 @@ public class HorizontalViewActivity extends AdsFragmentActivity {
             updateLockMode();
             // Toast.makeText(this, "DB", Toast.LENGTH_SHORT).show();
         } else if (ev.getMessage().equals(MessageEvent.MESSAGE_PLAY_PAUSE)) {
-            // Route through onDoubleTap so the x,y tap coordinates are used to seek
-            // to the tapped sentence via startTTSFromTap(), rather than just toggling
-            // play/pause from the current position.
+            // Route through onDoubleTap so x,y coordinates reach startTTSFromTap(),
+            // which uses them as a Y-fraction fallback for paragraph seeking.
             dc.onDoubleTap((int) ev.getX(), (int) ev.getY());
         } else if (ev.getMessage().equals(MessageEvent.MESSAGE_SHARE_PAGE)) {
 
