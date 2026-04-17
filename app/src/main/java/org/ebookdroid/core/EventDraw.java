@@ -261,12 +261,51 @@ public class EventDraw implements IEvent {
         if (page.selectedText.isEmpty()) {
             return;
         }
-        for (RectF selected : page.selectedText) {
-            final RectF rect = page.getPageRegion(pageBounds, new RectF(selected));
-            rect.offset(-viewState.viewBase.x, -viewState.viewBase.y);
-            canvas.drawRect(rect, p);
-        }
 
+        // Merge individual word rects into per-line strips before drawing.
+        //
+        // page.selectedText holds one RectF per matched TextWord. Drawing each one
+        // separately produces disconnected boxes with visible gaps between words,
+        // which looks wrong for sentence highlighting. Instead we group words that
+        // share the same visual line (similar top coordinate) and draw a single
+        // continuous filled rect spanning the whole line.
+        //
+        // Threshold: half the word height. Handles minor baseline shifts without
+        // accidentally merging words on adjacent lines.
+
+        java.util.List<RectF> sorted = new java.util.ArrayList<>(page.selectedText);
+        java.util.Collections.sort(sorted, new java.util.Comparator<RectF>() {
+            @Override public int compare(RectF a, RectF b) {
+                int c = Float.compare(a.top, b.top);
+                return c != 0 ? c : Float.compare(a.left, b.left);
+            }
+        });
+
+        java.util.List<RectF> lineRects = new java.util.ArrayList<>();
+        RectF currentLine = null;
+        float lineThreshold = 0f;
+
+        for (RectF word : sorted) {
+            if (currentLine == null) {
+                currentLine = new RectF(word);
+                lineThreshold = word.height() * 0.5f;
+            } else if (Math.abs(word.top - currentLine.top) <= lineThreshold) {
+                currentLine.union(word);
+                lineThreshold = Math.max(lineThreshold, word.height() * 0.5f);
+            } else {
+                lineRects.add(new RectF(currentLine));
+                currentLine = new RectF(word);
+                lineThreshold = word.height() * 0.5f;
+            }
+        }
+        if (currentLine != null) lineRects.add(new RectF(currentLine));
+
+        for (RectF lineRect : lineRects) {
+            final RectF screenRect = page.getPageRegion(pageBounds, new RectF(lineRect));
+            if (screenRect == null) continue;
+            screenRect.offset(-viewState.viewBase.x, -viewState.viewBase.y);
+            canvas.drawRect(screenRect, p);
+        }
     }
 
 }
