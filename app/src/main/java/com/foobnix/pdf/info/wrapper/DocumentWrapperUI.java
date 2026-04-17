@@ -67,6 +67,8 @@ import com.foobnix.pdf.info.view.UnderlineImageView;
 import com.foobnix.pdf.info.widget.DraggbleTouchListener;
 import com.foobnix.pdf.info.widget.ShareDialog;
 import com.foobnix.pdf.search.activity.ViewBinder;
+import com.foobnix.pdf.search.activity.PageImageState;
+import com.foobnix.pdf.search.activity.msg.InvalidateMessage;
 import com.foobnix.pdf.search.activity.msg.MessagePageXY;
 import com.foobnix.pdf.search.activity.msg.MessegeBrightness;
 import com.foobnix.pdf.search.activity.msg.NotifyAllFragments;
@@ -472,38 +474,73 @@ public class DocumentWrapperUI {
 
             if (dc == null) return;
 
-            // Canvas highlight via PageSentenceMap.
+            // ---------------------------------------------------------------
+            // Canvas highlight
+            // ---------------------------------------------------------------
             //
-            // We use rawText (TTS replacements disabled) as the search query, not event.text.
-            // Reason: event.text has user replacements applied — e.g. "n'"→" " turns
-            // "wasn't" into "was t". PageSearcher strips \W from both sides before comparing,
-            // so "was t" → "wast" (4 chars) vs page "wasnt" (5 chars) → no match.
-            // rawText uses the same text that the page renderer shows → always matches.
+            // WHY WE USE event.text DIRECTLY (not rawParts[paragIndex]):
             //
-            // We use 8 words so the query is long enough to be unique on the page (prevents
-            // matching a short repeated phrase like "She was alone" twice), and short enough
-            // that minor rendering differences don't break the match.
-            ensurePageMap();
-            if (currentPageMap != null && !currentPageMap.isEmpty()) {
-                PageSentenceMap.Sentence sentence = currentPageMap.get(event.paragIndex);
-                if (sentence != null) {
-                    // searchQuery() uses the full rawText for PageSearcher, which finds
-                    // and highlights every word in the sentence (not just the first few).
-                    // Returns "" for short sentences (<3 words) that would match too broadly.
-                    String searchQuery = sentence.searchQuery();
-                    if (!searchQuery.isEmpty()) {
-                        final int currentPage = dc.getCurentPage();
-                        TempHolder.isSeaching = true;
-                        dc.doSearch(searchQuery, new ResultResponse<Integer>() {
-                            @Override
-                            public boolean onResultRecive(Integer result) {
-                                TempHolder.isSeaching = (result == null || result >= 0);
-                                return true;
-                            }
-                        }, currentPage - 1, currentPage - 1);
-                    }
+            // PageSentenceMap builds rawParts with user TTS replacements disabled,
+            // but ttsParts (used by TTSEngine) are built WITH replacements. When a
+            // user replacement like ". " → TTS_PAUSE turns every sentence boundary
+            // into a split point, ttsParts has many more entries than rawParts.
+            // rawParts[paragIndex] then points to a completely different (much
+            // larger) block of text than the utterance being spoken → wrong sentence
+            // highlighted entirely.
+            //
+            // event.text = ttsParts[paragIndex] — the exact text being spoken.
+            // Using it as the search query avoids the index-misalignment problem.
+            //
+            // CONTRACTION HANDLING ("n'" → " " replacement):
+            // "wasn't" → "was t" in event.text. Stripped word "t" (1 char) matches
+            // nothing useful on the page. We filter out words of ≤2 chars to remove
+            // these artifacts, keeping the surrounding real words as the query.
+            // The skipped words won't be highlighted but the surrounding sentence
+            // words will be, giving an accurate enough visual result.
+            //
+            // STALE HIGHLIGHT:
+            // Clear the previous highlight synchronously before the async search
+            // starts. This prevents the old (possibly wrong) highlight from remaining
+            // visible during the search, which caused Image 1's large block to persist.
+
+            // 1. Synchronous clear of old highlight
+            PageImageState.get().cleanSelectedWords();
+            EventBus.getDefault().post(new InvalidateMessage());
+
+            // 2. Build query from event.text, filtering artifact words
+            final String ttsText = event.text != null ? event.text.trim() : "";
+            if (ttsText.isEmpty()) return;
+
+            String[] words = ttsText.split("\\s+");
+            StringBuilder sb = new StringBuilder();
+            for (String word : words) {
+                String w = word.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
+                // Skip very short words — single chars are almost certainly replacement
+                // artifacts (e.g. "t" from "wasn't" → "was t").
+                // 2-char words like "on", "of" are real words and kept.
+                if (w.length() >= 2) {
+                    if (sb.length() > 0) sb.append(" ");
+                    sb.append(w);
                 }
             }
+            final String searchQuery = sb.toString();
+
+            // Need at least 3 meaningful words to avoid ambiguous matches
+            long wordCount = searchQuery.isEmpty() ? 0
+                    : searchQuery.chars().filter(c -> c == ' ').count() + 1;
+            if (wordCount < 3) return;
+
+            // 3. Async search (populates page.selectedText and triggers redraw)
+            final int currentPage = dc.getCurentPage();
+            TempHolder.isSeaching = true;
+            dc.doSearch(searchQuery, new ResultResponse<Integer>() {
+                @Override
+                public boolean onResultRecive(Integer result) {
+                    TempHolder.isSeaching = (result == null || result >= 0);
+                    return true;
+                }
+            }, currentPage - 1, currentPage - 1);
+
         } catch (Exception e) {
             LOG.e(e);
         }

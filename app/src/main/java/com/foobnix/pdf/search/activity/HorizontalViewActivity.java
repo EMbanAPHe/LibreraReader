@@ -1462,6 +1462,14 @@ public class HorizontalViewActivity extends AdsFragmentActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
         Android6.onRequestPermissionsResult(this, requestCode, permissions, grantResults);
+        // Request code 11 = POST_NOTIFICATIONS (from TTSService.isTTSGranted).
+        // After the user grants the notification permission via the in-app dialog,
+        // auto-retry TTS playback so they don't have to press the button a second time.
+        if (requestCode == 11
+                && grantResults.length > 0
+                && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            TTSService.playPause(this, dc);
+        }
     }
 
     public void updateLockMode() {
