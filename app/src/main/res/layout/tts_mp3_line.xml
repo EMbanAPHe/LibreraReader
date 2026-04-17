@@ -2,15 +2,14 @@
 <!--
     IN-APP TTS BAR — inflated by TTSControlsView.java only. Never used by RemoteViews.
 
-    Layout approach: RelativeLayout for the controls row with ttsPlay set to
-    centerInParent="true". The left and right groups are positioned toStartOf/toEndOf
-    the play button and fill the remaining space. This guarantees the play button is
-    exactly centred regardless of how many buttons are visible on each side.
+    Centering strategy: outer row is a weightSum=2 LinearLayout split into three sections:
+        left group  (weight=1, gravity=end)   | ttsPlay (weight=0) | right group (weight=1, gravity=start)
 
-    Must contain all IDs referenced by TTSControlsView.java:
-      ttsBookMenu, ttsDialog, ttsPrev, ttsPlay, ttsNext,
-      ttsPrevTrack, ttsNextTrack, ttsStop,
-      trackName, layoutMp3, seekCurrent, seekMp3, seekMax
+    gravity=end on the LEFT group packs buttons toward the RIGHT (toward play button).
+    gravity=start on the RIGHT group packs buttons toward the LEFT (toward play button).
+    Both groups take equal weight so ttsPlay is always mathematically centred.
+    GONE buttons on either side don't affect the other side's width because the groups
+    always take exactly half the available space regardless of content.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -66,33 +65,24 @@
             android:textSize="@dimen/text_subtitle" />
     </LinearLayout>
 
-    <!-- Controls row. RelativeLayout pins ttsPlay to the centre; left and right groups
-         are placed relative to it so centering holds regardless of visible button count. -->
-    <RelativeLayout
+    <!-- Controls row: weightSum=2 ensures ttsPlay is always exactly centred -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="4dip"
         android:paddingTop="4dip"
-        android:paddingBottom="4dip">
+        android:weightSum="2">
 
-        <!-- CENTRE: play/pause — anchored to parent centre first so side groups can
-             reference it -->
-        <ImageView
-            android:id="@+id/ttsPlay"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_centerInParent="true"
-            android:background="@drawable/bg_clickable"
-            android:contentDescription="@string/play_pause"
-            android:src="@drawable/glyphicons_175_play" />
-
-        <!-- LEFT group: book-menu + settings + prev, gravity-centred in available space -->
+        <!-- LEFT group (weight=1, gravity=end): buttons pack toward the play button.
+             Using gravity="end" means buttons are right-aligned within their half of
+             the row, so they sit immediately to the left of ttsPlay with no gap. -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_alignParentStart="true"
-            android:layout_centerVertical="true"
-            android:layout_toStartOf="@id/ttsPlay"
-            android:gravity="center_vertical"
+            android:layout_weight="1"
+            android:gravity="end|center_vertical"
             android:orientation="horizontal">
 
             <ImageView
@@ -126,26 +116,38 @@
 
         </LinearLayout>
 
-        <!-- RIGHT group: next + prevTrack + nextTrack + stop -->
+        <!-- CENTRE: play/pause — weight=0 so it takes only its natural size -->
+        <ImageView
+            android:id="@+id/ttsPlay"
+            android:layout_width="@dimen/wh_tts_button"
+            android:layout_height="@dimen/wh_tts_button"
+            android:layout_gravity="center_vertical"
+            android:layout_weight="0"
+            android:background="@drawable/bg_clickable"
+            android:contentDescription="@string/play_pause"
+            android:src="@drawable/glyphicons_175_play" />
+
+        <!-- RIGHT group (weight=1, gravity=start): buttons pack toward the play button.
+             Using gravity="start" means buttons are left-aligned within their half,
+             so they sit immediately to the right of ttsPlay with no gap. -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:layout_toEndOf="@id/ttsPlay"
-            android:gravity="center_vertical"
+            android:layout_weight="1"
+            android:gravity="start|center_vertical"
             android:orientation="horizontal">
 
             <ImageView
                 android:id="@+id/ttsNext"
                 android:layout_width="@dimen/wh_tts_button"
                 android:layout_height="@dimen/wh_tts_button"
+                android:layout_marginLeft="6dp"
                 android:background="@drawable/bg_clickable"
                 android:contentDescription="@string/next_page"
                 android:padding="2dp"
                 android:src="@drawable/glyphicons_177_forward" />
 
-            <!-- MP3 track nav buttons: GONE in book mode, visible in playlist mode -->
+            <!-- Track nav: GONE in book mode, visible in MP3 playlist mode -->
             <ImageView
                 android:id="@+id/ttsPrevTrack"
                 android:layout_width="@dimen/wh_tts_button"
@@ -177,6 +179,6 @@
 
         </LinearLayout>
 
-    </RelativeLayout>
+    </LinearLayout>
 
 </LinearLayout>

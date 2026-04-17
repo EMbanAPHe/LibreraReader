@@ -269,42 +269,50 @@ public class EventDraw implements IEvent {
         // which looks wrong for sentence highlighting. Instead we group words that
         // share the same visual line (similar top coordinate) and draw a single
         // continuous filled rect spanning the whole line.
-        //
-        // Threshold: half the word height. Handles minor baseline shifts without
-        // accidentally merging words on adjacent lines.
+        try {
+            java.util.List<RectF> sorted = new java.util.ArrayList<>(page.selectedText);
+            java.util.Collections.sort(sorted, new java.util.Comparator<RectF>() {
+                @Override public int compare(RectF a, RectF b) {
+                    int c = Float.compare(a.top, b.top);
+                    return c != 0 ? c : Float.compare(a.left, b.left);
+                }
+            });
 
-        java.util.List<RectF> sorted = new java.util.ArrayList<>(page.selectedText);
-        java.util.Collections.sort(sorted, new java.util.Comparator<RectF>() {
-            @Override public int compare(RectF a, RectF b) {
-                int c = Float.compare(a.top, b.top);
-                return c != 0 ? c : Float.compare(a.left, b.left);
+            java.util.List<RectF> lineRects = new java.util.ArrayList<>();
+            RectF currentLine = null;
+            float lineThreshold = 0f;
+
+            for (RectF word : sorted) {
+                if (word == null) continue;
+                if (currentLine == null) {
+                    currentLine = new RectF(word);
+                    lineThreshold = Math.max(word.height() * 0.5f, 1f);
+                } else if (Math.abs(word.top - currentLine.top) <= lineThreshold) {
+                    currentLine.union(word);
+                    lineThreshold = Math.max(lineThreshold, word.height() * 0.5f);
+                } else {
+                    lineRects.add(new RectF(currentLine));
+                    currentLine = new RectF(word);
+                    lineThreshold = Math.max(word.height() * 0.5f, 1f);
+                }
             }
-        });
+            if (currentLine != null) lineRects.add(new RectF(currentLine));
 
-        java.util.List<RectF> lineRects = new java.util.ArrayList<>();
-        RectF currentLine = null;
-        float lineThreshold = 0f;
-
-        for (RectF word : sorted) {
-            if (currentLine == null) {
-                currentLine = new RectF(word);
-                lineThreshold = word.height() * 0.5f;
-            } else if (Math.abs(word.top - currentLine.top) <= lineThreshold) {
-                currentLine.union(word);
-                lineThreshold = Math.max(lineThreshold, word.height() * 0.5f);
-            } else {
-                lineRects.add(new RectF(currentLine));
-                currentLine = new RectF(word);
-                lineThreshold = word.height() * 0.5f;
+            for (RectF lineRect : lineRects) {
+                final RectF screenRect = page.getPageRegion(pageBounds, new RectF(lineRect));
+                if (screenRect == null) continue;
+                screenRect.offset(-viewState.viewBase.x, -viewState.viewBase.y);
+                canvas.drawRect(screenRect, p);
             }
-        }
-        if (currentLine != null) lineRects.add(new RectF(currentLine));
-
-        for (RectF lineRect : lineRects) {
-            final RectF screenRect = page.getPageRegion(pageBounds, new RectF(lineRect));
-            if (screenRect == null) continue;
-            screenRect.offset(-viewState.viewBase.x, -viewState.viewBase.y);
-            canvas.drawRect(screenRect, p);
+        } catch (Exception e) {
+            // Fallback: draw per-word rects (original behaviour, no crash)
+            for (RectF selected : page.selectedText) {
+                if (selected == null) continue;
+                final RectF rect = page.getPageRegion(pageBounds, new RectF(selected));
+                if (rect == null) continue;
+                rect.offset(-viewState.viewBase.x, -viewState.viewBase.y);
+                canvas.drawRect(rect, p);
+            }
         }
     }
 

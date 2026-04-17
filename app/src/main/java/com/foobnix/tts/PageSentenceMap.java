@@ -67,28 +67,39 @@ public class PageSentenceMap {
         }
 
         /**
-         * Build a doSearch query string from the first {@code wordCount} words of rawText.
+         * Build a doSearch query from rawText.
          *
-         * Strips punctuation (so "alone," matches TextWord "alone"), lowercases,
-         * and joins with spaces. This is what PageSearcher accumulates in its sliding
-         * window — the window text contains stripped word tokens joined by spaces.
+         * Uses the FULL sentence text (no word limit) so PageSearcher's sliding window
+         * matches and highlights all words of the sentence, not just the first few.
          *
-         * Using 8 words: long enough to uniquely identify a sentence and avoid matching
-         * a duplicate, short enough that minor rendering differences don't break the match.
+         * Strips punctuation exactly as PageSearcher.WordData does (replaceAll("\\W",""))
+         * so "wasn't" → "wasnt" on both sides and the match succeeds.
+         *
+         * Returns "" if the sentence has fewer than MIN_WORDS meaningful words — short
+         * sentences like "Yes." or "Hello?" match too many places on the page and produce
+         * spurious multi-word highlights. Callers should skip highlighting in that case.
          */
-        public String searchQuery(int wordCount) {
+        public String searchQuery() {
             if (rawText == null || rawText.isEmpty()) return "";
             String[] words = rawText.split("\\s+");
-            int count = Math.min(wordCount, words.length);
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < count; i++) {
-                String w = words[i].replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
+            for (String word : words) {
+                String w = word.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
                 if (!w.isEmpty()) {
                     if (sb.length() > 0) sb.append(" ");
                     sb.append(w);
                 }
             }
-            return sb.toString();
+            String query = sb.toString();
+            // Require at least 3 meaningful words to avoid matching noise.
+            // A 1-2 word query like "yes" or "hello world" matches too broadly.
+            long wordCount = query.chars().filter(c -> c == ' ').count() + 1;
+            return (wordCount >= 3) ? query : "";
+        }
+
+        /** Legacy overload kept for compatibility. Calls the no-arg version. */
+        public String searchQuery(int ignored) {
+            return searchQuery();
         }
     }
 
@@ -116,13 +127,19 @@ public class PageSentenceMap {
         if (pageHtml == null || pageHtml.isEmpty()) return map;
 
         try {
-            // --- Raw split: replacements OFF ---
+            // Raw split: replacements OFF → text matches the page TextWords exactly.
+            // Wrapped in try-finally so isEnalbeTTSReplacements is always restored
+            // even if replaceHTMLforTTS throws (prevents state leaking to other callers).
             boolean savedReplacements = AppState.get().isEnalbeTTSReplacements;
-            AppState.get().isEnalbeTTSReplacements = false;
-            String rawProcessed = TxtUtils.replaceHTMLforTTS(pageHtml);
-            AppState.get().isEnalbeTTSReplacements = savedReplacements;
+            String rawProcessed;
+            try {
+                AppState.get().isEnalbeTTSReplacements = false;
+                rawProcessed = TxtUtils.replaceHTMLforTTS(pageHtml);
+            } finally {
+                AppState.get().isEnalbeTTSReplacements = savedReplacements;
+            }
 
-            // --- TTS split: replacements ON (normal) ---
+            // TTS split: replacements ON (normal) → what the engine speaks.
             String ttsProcessed = TxtUtils.replaceHTMLforTTS(pageHtml);
 
             String[] rawParts = rawProcessed.split(TxtUtils.TTS_PAUSE);

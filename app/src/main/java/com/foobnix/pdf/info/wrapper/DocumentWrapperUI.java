@@ -487,7 +487,10 @@ public class DocumentWrapperUI {
             if (currentPageMap != null && !currentPageMap.isEmpty()) {
                 PageSentenceMap.Sentence sentence = currentPageMap.get(event.paragIndex);
                 if (sentence != null) {
-                    String searchQuery = sentence.searchQuery(8);
+                    // searchQuery() uses the full rawText for PageSearcher, which finds
+                    // and highlights every word in the sentence (not just the first few).
+                    // Returns "" for short sentences (<3 words) that would match too broadly.
+                    String searchQuery = sentence.searchQuery();
                     if (!searchQuery.isEmpty()) {
                         final int currentPage = dc.getCurentPage();
                         TempHolder.isSeaching = true;

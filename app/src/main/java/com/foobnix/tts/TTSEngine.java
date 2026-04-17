@@ -223,7 +223,10 @@ public class TTSEngine {
             }
             ttsEngine = null;
         }
-        AppSP.get().lastBookParagraph = 0;
+        // Do NOT reset lastBookParagraph here. persistTtsPosition() already saved the
+        // correct paragraph to SharedPrefs via AppSP.save(). Resetting to 0 here means
+        // the next AppProfile.save() (e.g. on app pause) overwrites the saved value with
+        // 0, so TTS restarts from the top of the page instead of where it stopped.
     }
 
     public TextToSpeech setTTSWithEngine(String engine) {

@@ -761,19 +761,13 @@ import java.util.List;
                              @Override
                              public void onRangeStart(String utteranceId, int start, int end,
                                      int frame) {
-                                 if (utteranceId.startsWith(TTSEngine.FINISHED_SIGNAL)) {
-                                     try {
-                                         int idx = Integer.parseInt(
-                                                 utteranceId.replace(TTSEngine.FINISHED_SIGNAL, ""));
-                                         String sentenceText = (idx < ttsPageParts.length)
-                                                 ? ttsPageParts[idx] : "";
-                                         EventBus.getDefault().post(
-                                                 new TtsHighlightEvent(idx, start, end,
-                                                         sentenceText));
-                                     } catch (Exception e) {
-                                         LOG.e(e);
-                                     }
-                                 }
+                                 // Intentionally NOT posting TtsHighlightEvent here.
+                                 // onRangeStart fires when the TTS engine *synthesises* a word
+                                 // range. With QUEUE_ADD, synthesis of sentence N+1 begins while
+                                 // sentence N is still playing audio, so posting here jumps the
+                                 // highlight a sentence ahead of what the user hears.
+                                 // Highlighting is driven by onStart only, which fires when
+                                 // audio playback actually begins for each utterance.
                              }
 
                              @Override public void onError(String utteranceId) {
