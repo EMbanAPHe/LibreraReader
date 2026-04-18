@@ -79,8 +79,8 @@ import com.foobnix.tts.TTSControlsView;
 import com.foobnix.tts.TTSEngine;
 import com.foobnix.tts.TTSService;
 import com.foobnix.tts.TtsHighlightEvent;
-import com.foobnix.tts.PageSentenceMap;
 import com.foobnix.tts.TtsStatus;
+import com.foobnix.tts.VoiceManager;
 import com.foobnix.ui2.AdsFragmentActivity;
 import com.foobnix.ui2.AppDB;
 import com.foobnix.ui2.MainTabs2;
@@ -266,16 +266,12 @@ public class DocumentWrapperUI {
      * this to locate the correct TTS paragraph, then clears it immediately.
      * Falls back to Y-fraction when null (e.g. horizontal/image-mode pages).
      */
-    public static volatile String pendingTapWord = null;
+    public static volatile String pendingTapWord = null; // kept for AdvGuestureDetector compat
 
-    /**
-     * Sentence map for the current page. Built once per page, reused for every
-     * onTtsHighlight event and for tap-to-seek. Rebuilt when the page number changes.
-     * null = not yet built for this page.
-     */
-    private PageSentenceMap currentPageMap = null;
-    /** Page number (1-indexed) for which currentPageMap was last built. */
-    private int currentMapPage = -1;
+    /** Cached sentence list for the current page, built by VoiceManager. */
+    private java.util.List<VoiceManager.Sentence> pageSentences = new java.util.ArrayList<>();
+    /** Page number for which pageSentences was built. -1 = stale. */
+    private int sentencesBuiltForPage = -1;
     SeekBar seekBar, speedSeekBar;
     FrameLayout anchor;
     public View.OnClickListener onShowContext = new View.OnClickListener() {
@@ -450,22 +446,22 @@ public class DocumentWrapperUI {
     public void onTTSStatus(TtsStatus status) {
         try {
             ttsActive.setVisibility(View.VISIBLE);
-            // Invalidate the sentence map so it's rebuilt for the new page on next use.
-            currentMapPage = -1;
+            // Invalidate cached sentences so VoiceManager rebuilds for the new page.
+            VoiceManager.get().invalidate();
+            sentencesBuiltForPage = -1;
         } catch (Exception e) {
             LOG.e(e);
         }
-
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onTtsHighlight(TtsHighlightEvent event) {
         try {
-            // Update the sentence display bar with TTS-processed text (what was spoken)
+            // Update the sentence display bar
             if (ttsCurrentSentence != null) {
-                String sentence = event.text != null ? event.text.trim() : "";
-                if (!sentence.isEmpty()) {
-                    ttsCurrentSentence.setText(sentence);
+                String text = event.text != null ? event.text.trim() : "";
+                if (!text.isEmpty()) {
+                    ttsCurrentSentence.setText(text);
                     ttsCurrentSentence.setVisibility(View.VISIBLE);
                 } else {
                     ttsCurrentSentence.setVisibility(View.GONE);
@@ -474,73 +470,24 @@ public class DocumentWrapperUI {
 
             if (dc == null) return;
 
-            // ---------------------------------------------------------------
-            // Canvas highlight
-            // ---------------------------------------------------------------
-            //
-            // WHY WE USE event.text DIRECTLY (not rawParts[paragIndex]):
-            //
-            // PageSentenceMap builds rawParts with user TTS replacements disabled,
-            // but ttsParts (used by TTSEngine) are built WITH replacements. When a
-            // user replacement like ". " → TTS_PAUSE turns every sentence boundary
-            // into a split point, ttsParts has many more entries than rawParts.
-            // rawParts[paragIndex] then points to a completely different (much
-            // larger) block of text than the utterance being spoken → wrong sentence
-            // highlighted entirely.
-            //
-            // event.text = ttsParts[paragIndex] — the exact text being spoken.
-            // Using it as the search query avoids the index-misalignment problem.
-            //
-            // CONTRACTION HANDLING ("n'" → " " replacement):
-            // "wasn't" → "was t" in event.text. Stripped word "t" (1 char) matches
-            // nothing useful on the page. We filter out words of ≤2 chars to remove
-            // these artifacts, keeping the surrounding real words as the query.
-            // The skipped words won't be highlighted but the surrounding sentence
-            // words will be, giving an accurate enough visual result.
-            //
-            // STALE HIGHLIGHT:
-            // Clear the previous highlight synchronously before the async search
-            // starts. This prevents the old (possibly wrong) highlight from remaining
-            // visible during the search, which caused Image 1's large block to persist.
-
-            // 1. Synchronous clear of old highlight
-            PageImageState.get().cleanSelectedWords();
-            EventBus.getDefault().post(new InvalidateMessage());
-
-            // 2. Build query from event.text, filtering artifact words
-            final String ttsText = event.text != null ? event.text.trim() : "";
-            if (ttsText.isEmpty()) return;
-
-            String[] words = ttsText.split("\\s+");
-            StringBuilder sb = new StringBuilder();
-            for (String word : words) {
-                String w = word.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
-                // Skip very short words — single chars are almost certainly replacement
-                // artifacts (e.g. "t" from "wasn't" → "was t").
-                // 2-char words like "on", "of" are real words and kept.
-                if (w.length() >= 2) {
-                    if (sb.length() > 0) sb.append(" ");
-                    sb.append(w);
+            // Direct TextWord highlighting via VoiceManager.
+            // NO text search. NO async races. NO text mismatch from TTS replacements.
+            // VoiceManager built sentences from TextWord[][] (the render engine's word
+            // list), so each Sentence.words is a direct reference to the exact
+            // TextWord objects on page. We assign them to PageImageState and redraw.
+            ensureSentences();
+            if (!pageSentences.isEmpty() && event.paragIndex < pageSentences.size()) {
+                VoiceManager.Sentence sentence = pageSentences.get(event.paragIndex);
+                if (sentence != null) {
+                    PageImageState.get().cleanSelectedWords();
+                    // Add each word directly - no search, guaranteed correct position
+                    int pageIdx = dc.getCurentPage() - 1;
+                    for (org.ebookdroid.droids.mupdf.codec.TextWord word : sentence.words) {
+                        PageImageState.get().addWord(pageIdx, word);
+                    }
+                    EventBus.getDefault().post(new InvalidateMessage());
                 }
             }
-            final String searchQuery = sb.toString();
-
-            // Need at least 3 meaningful words to avoid ambiguous matches
-            long wordCount = searchQuery.isEmpty() ? 0
-                    : searchQuery.chars().filter(c -> c == ' ').count() + 1;
-            if (wordCount < 3) return;
-
-            // 3. Async search (populates page.selectedText and triggers redraw)
-            final int currentPage = dc.getCurentPage();
-            TempHolder.isSeaching = true;
-            dc.doSearch(searchQuery, new ResultResponse<Integer>() {
-                @Override
-                public boolean onResultRecive(Integer result) {
-                    TempHolder.isSeaching = (result == null || result >= 0);
-                    return true;
-                }
-            }, currentPage - 1, currentPage - 1);
-
         } catch (Exception e) {
             LOG.e(e);
         }
@@ -1581,88 +1528,56 @@ public class DocumentWrapperUI {
     }
 
     /**
-     * Ensure currentPageMap is built (or rebuilt) for the current page.
-     *
-     * Called before any TTS highlight or tap lookup. The map is cached per page:
-     * if the page hasn't changed since the last build, the existing map is reused.
-     * This avoids the cost of calling getPageHtml() + replaceHTMLforTTS() twice
-     * on every highlight event.
+     * Ensure pageSentences is built for the current page.
+     * Calls VoiceManager.getSentences() which caches internally and only rebuilds
+     * when the page number changes — safe to call on every highlight event.
      */
-    private void ensurePageMap() {
+    private void ensureSentences() {
         try {
             int page = dc.getCurentPage();
-            if (currentPageMap != null && currentMapPage == page) return; // already fresh
-            String html = dc.getPageHtml();
-            if (TxtUtils.isNotEmpty(html)) {
-                currentPageMap = PageSentenceMap.build(html);
-                currentMapPage = page;
-            } else {
-                currentPageMap = null;
-                currentMapPage = -1;
-            }
+            if (sentencesBuiltForPage == page && !pageSentences.isEmpty()) return;
+            org.ebookdroid.droids.mupdf.codec.TextWord[][] words = dc.getPageWords();
+            pageSentences = VoiceManager.get().getSentences(words, page);
+            sentencesBuiltForPage = page;
         } catch (Exception e) {
             LOG.e(e);
-            currentPageMap = null;
-            currentMapPage = -1;
+            pageSentences = new java.util.ArrayList<>();
+            sentencesBuiltForPage = -1;
         }
     }
 
     /**
      * Double-tap to start TTS from the tapped sentence.
      *
-     * Uses PageSentenceMap.findTtsIndex() which scores each TTS paragraph by:
-     *   (a) whether it contains the word at the tap position (from AdvGuestureDetector),
-     *   (b) Y-fraction distance from the tap point.
-     *
-     * This finds the correct occurrence of a repeated word (e.g. "She was alone" appearing
-     * twice — tap near the second picks the second, not always the first).
-     *
-     * Falls back to pure Y-fraction when no word is available (image-heavy pages).
+     * Uses VoiceManager.findSentenceIndex() which computes the closest sentence
+     * by comparing tapY/viewHeight against each Sentence.yCenter (derived from
+     * the actual TextWord bounding boxes). Exact, no approximation.
      */
     private void startTTSFromTap(int x, int y) {
         TTSEngine.get().stop();
 
         int targetParagraph = 0;
         try {
-            // Build/refresh the sentence map for this page.
-            // ensurePageMap() is cheap if the page hasn't changed.
-            ensurePageMap();
+            ensureSentences();
 
-            // Consume the word set by AdvGuestureDetector before routing the double-tap.
-            // It comes from processLongTap() which uses exact TextWord bounding boxes —
-            // pixel-accurate, completely independent of the TTS split.
-            String tapWord = pendingTapWord;
+            if (!pageSentences.isEmpty()) {
+                // Convert tap screen-Y to a page fraction in [0..1]
+                int viewHeight = a.getWindow().getDecorView().getHeight();
+                float yFraction = (viewHeight > 0)
+                        ? Math.max(0f, Math.min(1f, (float) y / viewHeight))
+                        : 0.5f;
+                targetParagraph = VoiceManager.findSentenceIndex(pageSentences, yFraction);
+                LOG.d("TTS tap", "y=", y, "yFrac=", yFraction, "→ sentence", targetParagraph);
+            }
+
+            // Clear stale tap word
             pendingTapWord = null;
-
-            // Compute Y-fraction: tap Y as proportion of visible view height.
-            float yFraction = 0.5f;
-            int viewHeight = a.getWindow().getDecorView().getHeight();
-            if (viewHeight > 0) {
-                yFraction = Math.max(0f, Math.min(1f, (float) y / viewHeight));
-            }
-
-            if (currentPageMap != null && !currentPageMap.isEmpty()) {
-                // PageSentenceMap handles both word scoring and Y tie-breaking internally.
-                targetParagraph = currentPageMap.findTtsIndex(tapWord, yFraction);
-            } else {
-                // Map unavailable (image/PDF page with no text layer): pure Y-fraction.
-                // Rebuild parts[] directly from the TTS-processed HTML.
-                String pageHTML = dc.getPageHtml();
-                if (TxtUtils.isNotEmpty(pageHTML)) {
-                    String[] parts = TxtUtils.replaceHTMLforTTS(pageHTML)
-                                             .split(TxtUtils.TTS_PAUSE);
-                    if (parts.length > 0) {
-                        targetParagraph = Math.min(
-                                (int)(yFraction * parts.length), parts.length - 1);
-                    }
-                }
-            }
         } catch (Exception e) {
             LOG.e(e);
         }
 
-        // pendingParagraph survives the TTSEngine.stop() that happens inside playBookPage.
-        // TTSService.playPage() consumes it just before calling speek().
+        // pendingParagraph survives TTSEngine.stop() inside playBookPage.
+        // TTSService.playPage() consumes it just before speek().
         TTSService.pendingParagraph = targetParagraph;
 
         TTSService.playBookPage(

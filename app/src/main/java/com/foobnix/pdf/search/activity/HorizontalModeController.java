@@ -350,6 +350,11 @@ public abstract class HorizontalModeController extends DocumentController {
         return "";
     }
 
+    @Override
+    public org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords() {
+        return getPageText(getCurentPageFirst1() - 1);
+    }
+
     @Override public List<PageLink> getLinksForPage(int page) {
         try {
             return codeDocument.getPage(page)

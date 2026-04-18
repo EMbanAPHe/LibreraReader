@@ -819,6 +819,15 @@ public abstract class DocumentController {
 
     public abstract String getPageHtml();
 
+    /**
+     * Return the TextWord[][] grid for the current page.
+     * TextWord extends RectF — each word carries its bounding box in page-normalized
+     * coords (0..1 for EPUB text format). Used by VoiceManager to build sentences
+     * with exact positions for direct highlighting and tap hit-testing.
+     * Returns null if the page has no text layer (images, scanned PDFs).
+     */
+    public abstract org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords();
+
     public abstract List<PageLink> getLinksForPage(int page);
 
     public void onAnnotationTap(long pageHander, int page, int index) {

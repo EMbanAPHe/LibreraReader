@@ -416,6 +416,11 @@ public class VerticalModeController extends DocumentController {
     }
 
     @Override
+    public org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords() {
+        return ctr.getDecodeService().getTextForPage(getCurentPageFirst1() - 1);
+    }
+
+
     public void underlineText(int color, float width, AnnotationType type) {
         if (ctr == null || ctr.getDocumentController() == null || ctr.getDocumentModel() == null) {
             LOG.d("Can't underlineText");
