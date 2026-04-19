@@ -471,16 +471,26 @@ public class DocumentWrapperUI {
             if (dc == null) return;
 
             // Direct TextWord highlighting via VoiceManager.
-            // NO text search. NO async races. NO text mismatch from TTS replacements.
-            // VoiceManager built sentences from TextWord[][] (the render engine's word
-            // list), so each Sentence.words is a direct reference to the exact
-            // TextWord objects on page. We assign them to PageImageState and redraw.
+            //
+            // IMPORTANT: event.paragIndex is an index into ttsPageParts[] (TTS_PAUSE
+            // split). pageSentences is built by BreakIterator. These are DIFFERENT splits
+            // with different lengths — DO NOT use paragIndex as a direct index.
+            //
+            // Instead: findBestSentence() matches event.text against each sentence's
+            // TextWord content by word overlap. This is robust to:
+            //   - Different split lengths (paragIndex != sentence index)
+            //   - TTS replacements ("wasn't"→"was t": "was" still matches)
+            //   - Duplicate phrases (Y-fraction tiebreaker picks the right occurrence)
             ensureSentences();
-            if (!pageSentences.isEmpty() && event.paragIndex < pageSentences.size()) {
-                VoiceManager.Sentence sentence = pageSentences.get(event.paragIndex);
+            if (!pageSentences.isEmpty()) {
+                VoiceManager.Sentence sentence = VoiceManager.findBestSentence(
+                        pageSentences,
+                        event.text,
+                        event.paragIndex,
+                        pageSentences.size() // proxy for totalParags
+                );
                 if (sentence != null) {
                     PageImageState.get().cleanSelectedWords();
-                    // Add each word directly - no search, guaranteed correct position
                     int pageIdx = dc.getCurentPage() - 1;
                     for (org.ebookdroid.droids.mupdf.codec.TextWord word : sentence.words) {
                         PageImageState.get().addWord(pageIdx, word);

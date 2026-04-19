@@ -1,5 +1,8 @@
 package com.foobnix.tts;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import com.foobnix.android.utils.LOG;
 import com.foobnix.android.utils.TxtUtils;
 import com.foobnix.pdf.search.activity.PageImageState;
@@ -7,10 +10,6 @@ import com.foobnix.pdf.search.activity.msg.InvalidateMessage;
 
 import org.ebookdroid.droids.mupdf.codec.TextWord;
 import org.greenrobot.eventbus.EventBus;
-
-import org.librera.LinkedJSONObject;
-
-import com.foobnix.model.AppState;
 
 import java.text.BreakIterator;
 import java.util.ArrayList;
@@ -105,6 +104,8 @@ public class VoiceManager {
     private List<Sentence> currentSentences = new ArrayList<>();
     /** The page number (1-indexed getCurentPage()) for which sentences were built. */
     private int builtForPage = -1;
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // -------------------------------------------------------------------------
     // Build sentences from TextWord[][]
@@ -217,11 +218,11 @@ public class VoiceManager {
     private static String applyTtsReplacements(String text) {
         if (text == null || text.isEmpty()) return "";
         try {
-            if (!AppState.get().isEnalbeTTSReplacements) return text;
+            if (!com.foobnix.model.AppState.get().isEnalbeTTSReplacements) return text;
             // Apply system replacements from lineTTSReplacements3
-            LinkedJSONObject obj =
-                    new LinkedJSONObject(
-                            AppState.get().lineTTSReplacements3);
+            com.foobnix.android.utils.LinkedJSONObject obj =
+                    new com.foobnix.android.utils.LinkedJSONObject(
+                            com.foobnix.model.AppState.get().lineTTSReplacements3);
             java.util.Iterator<String> keys = obj.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
@@ -272,8 +273,96 @@ public class VoiceManager {
     }
 
     // -------------------------------------------------------------------------
-    // Highlight
+    // Best-match sentence lookup by spoken text
     // -------------------------------------------------------------------------
+
+    /**
+     * Find the sentence whose word content best matches the spoken text.
+     *
+     * WHY NOT USE paragIndex DIRECTLY
+     * --------------------------------
+     * event.paragIndex is an index into ttsPageParts[] — the array produced by
+     * splitting the TTS-processed HTML at TTS_PAUSE markers (em-dashes, triple-spaces,
+     * italic transitions, user replacements, etc.). pageSentences is built by
+     * BreakIterator which splits on grammatical sentence boundaries. These two arrays
+     * have different lengths and different content ordering, so paragIndex is NOT a
+     * valid index into pageSentences.
+     *
+     * WORD OVERLAP MATCHING
+     * ----------------------
+     * Instead of index mapping, we compare the words of event.text (the actual text
+     * being spoken) against the words of each sentence's TextWord list. The sentence
+     * with the highest proportion of matching words wins.
+     *
+     * Handles TTS replacements ("wasn't" → "was t"): both "was" and "t" are in the
+     * spoken text; "wasn't" stripped to "wasnt" is in the TextWord. We match "was"
+     * (3 chars, significant) and the score is still high enough to identify the sentence.
+     *
+     * Handles duplicates: if the same phrase appears twice, use paragIndexFraction
+     * (paragIndex / totalParags) as a Y-position hint to prefer the occurrence whose
+     * yCenter is closer to that fraction.
+     *
+     * @param sentences        sentence list from getSentences()
+     * @param spokenText       event.text — the TTS paragraph text being spoken
+     * @param paragIndex       event.paragIndex — used only to break ties on duplicates
+     * @param totalParags      total TTS paragraphs for this page (ttsPageParts.length)
+     */
+    public static Sentence findBestSentence(List<Sentence> sentences,
+                                             String spokenText,
+                                             int paragIndex,
+                                             int totalParags) {
+        if (sentences == null || sentences.isEmpty() || spokenText == null) return null;
+
+        // Build word set from spoken text (words >= 3 chars to skip replacement artifacts)
+        java.util.Set<String> spokenWords = new java.util.HashSet<>();
+        for (String w : spokenText.split("\\s+")) {
+            String s = w.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
+            if (s.length() >= 3) spokenWords.add(s);
+        }
+        if (spokenWords.isEmpty()) {
+            // Short sentence — fall back to Y-fraction estimate
+            float yEst = (totalParags > 1) ? (float) paragIndex / (totalParags - 1) : 0.5f;
+            return sentences.get(findSentenceIndex(sentences, yEst));
+        }
+
+        // Score each sentence by word overlap
+        float bestScore = -1f;
+        Sentence best = null;
+
+        // Y estimate from paragIndex for tie-breaking
+        float yEst = (totalParags > 1) ? (float) paragIndex / (totalParags - 1) : 0.5f;
+
+        for (Sentence s : sentences) {
+            if (s.words.isEmpty()) continue;
+
+            int matches = 0;
+            for (TextWord word : s.words) {
+                String w = word.w.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
+                if (w.length() >= 3 && spokenWords.contains(w)) matches++;
+            }
+
+            // Jaccard-style: matches / union
+            int union = spokenWords.size() + s.words.size() - matches;
+            float overlapScore = union > 0 ? (float) matches / union : 0f;
+
+            // Add small bonus for Y-proximity to break ties on duplicate phrases
+            float yBonus = 0.1f * (1f - Math.abs(s.yCenter - yEst));
+            float totalScore = overlapScore + yBonus;
+
+            if (totalScore > bestScore) {
+                bestScore = totalScore;
+                best = s;
+            }
+        }
+
+        // Only use if meaningful match (>= 20% overlap); otherwise Y-fraction fallback
+        if (best != null && bestScore >= 0.2f) {
+            return best;
+        }
+        return sentences.get(findSentenceIndex(sentences, yEst));
+    }
+
+
 
     /**
      * Highlight the sentence at the given index by directly assigning its TextWord
