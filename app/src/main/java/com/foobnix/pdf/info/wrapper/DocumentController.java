@@ -812,7 +812,9 @@ public abstract class DocumentController {
     }
 
     public void onDoubleTap(int x, int y) {
-        ui.doDoubleTap(x, y);
+        if (ui != null) {
+            ui.doDoubleTap(x, y);
+        }
     }
 
     public abstract String getTextForPage(int page);
@@ -860,6 +862,10 @@ public abstract class DocumentController {
 
     public void setUi(final DocumentWrapperUI ui) {
         this.ui = ui;
+    }
+
+    public DocumentWrapperUI getUI() {
+        return ui;
     }
 
     public boolean showContent(final ListView contentList) {

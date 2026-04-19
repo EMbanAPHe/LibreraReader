@@ -1700,9 +1700,14 @@ public class HorizontalViewActivity extends AdsFragmentActivity {
             updateLockMode();
             // Toast.makeText(this, "DB", Toast.LENGTH_SHORT).show();
         } else if (ev.getMessage().equals(MessageEvent.MESSAGE_PLAY_PAUSE)) {
-            // Route through onDoubleTap so x,y coordinates reach startTTSFromTap(),
-            // which uses them as a Y-fraction fallback for paragraph seeking.
-            dc.onDoubleTap((int) ev.getX(), (int) ev.getY());
+            // Route through onDoubleTap so tap coordinates reach VoiceManager.findSentenceIndex().
+            // onDoubleTap now has a null check on ui, so this is safe even before the
+            // book view is fully initialized (ui null → falls through to playPause fallback).
+            if (dc != null && dc.getUI() != null) {
+                dc.onDoubleTap((int) ev.getX(), (int) ev.getY());
+            } else {
+                TTSService.playPause(this, dc);
+            }
         } else if (ev.getMessage().equals(MessageEvent.MESSAGE_SHARE_PAGE)) {
 
             ExtUtils.sharePage(dc, dc.getCurentPage());
