@@ -419,15 +419,27 @@ public class VerticalModeController extends DocumentController {
     public org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords() {
         try {
             int pageIdx = getCurentPageFirst1() - 1;
-            // Prefer the already-cached page.texts from the model (populated during rendering)
-            // over opening a fresh CodecPage, since the codec page may already be recycled.
             org.ebookdroid.core.Page page =
                     ctr.getDocumentModel().getPageByDocIndex(pageIdx);
             if (page != null && page.texts != null) {
                 return page.texts;
             }
-            // Fallback: open CodecPage directly (first load before render completes)
             return ctr.getDecodeService().getTextForPage(pageIdx);
+        } catch (Exception e) {
+            LOG.e(e);
+            return null;
+        }
+    }
+
+    @Override
+    public org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWordsForPage(int docPageIndex) {
+        try {
+            org.ebookdroid.core.Page page =
+                    ctr.getDocumentModel().getPageByDocIndex(docPageIndex);
+            if (page != null && page.texts != null) {
+                return page.texts;
+            }
+            return ctr.getDecodeService().getTextForPage(docPageIndex);
         } catch (Exception e) {
             LOG.e(e);
             return null;

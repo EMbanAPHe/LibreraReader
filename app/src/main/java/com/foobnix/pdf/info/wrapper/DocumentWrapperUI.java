@@ -1568,26 +1568,52 @@ public class DocumentWrapperUI {
 
         int targetParagraph = 0;
         try {
-            ensureSentences();
-
             // Consume the word captured by AdvGuestureDetector.onDoubleTap().
-            // processLongTap() uses the rendering engine's exact TextWord bounding boxes,
-            // properly scroll-corrected — more accurate than Y-fraction which ignores scroll.
+            // processLongTap() returns the word under the tap using exact TextWord
+            // bounding boxes, correctly scroll-corrected.
             String tapWord = pendingTapWord;
             pendingTapWord = null;
 
-            if (!pageSentences.isEmpty()) {
-                // Y-fraction as a tiebreaker when the same word appears in multiple sentences.
-                // tapY/viewHeight is approximate (ignores page scroll offset) but good enough
-                // for disambiguation since duplicate words are rarely many pages apart.
-                int viewHeight = a.getWindow().getDecorView().getHeight();
-                float yFraction = (viewHeight > 0)
-                        ? Math.max(0f, Math.min(1f, (float) y / viewHeight))
-                        : 0.5f;
+            int viewHeight = a.getWindow().getDecorView().getHeight();
+            float yFraction = (viewHeight > 0)
+                    ? Math.max(0f, Math.min(1f, (float) y / viewHeight))
+                    : 0.5f;
 
-                // findSentenceByWord: find sentence containing the tapped word (coordinate-
-                // independent), using Y-fraction only to break ties. Falls back to pure
-                // Y-fraction if the word is null or not found in any sentence.
+            // In vertical scroll mode multiple page tiles are visible simultaneously.
+            // getCurentPage() returns the top/centred tile, but the tapped word may
+            // be on an adjacent tile. Build sentences for the current page and try
+            // to find the word there first; if not found, try adjacent page tiles.
+            ensureSentences();
+
+            boolean found = tapWord == null || tapWord.isEmpty()
+                    || VoiceManager.wordExistsInSentences(pageSentences, tapWord);
+
+            if (!found) {
+                // Word not in current page — try ±2 adjacent page tiles
+                int currentPage = dc.getCurentPage(); // 1-indexed
+                int pageCount = dc.getPageCount();
+                outer:
+                for (int delta = 1; delta <= 2; delta++) {
+                    for (int dir : new int[]{1, -1}) {
+                        int tryPage = currentPage - 1 + dir * delta; // 0-indexed
+                        if (tryPage < 0 || tryPage >= pageCount) continue;
+                        org.ebookdroid.droids.mupdf.codec.TextWord[][] words =
+                                dc.getPageWordsForPage(tryPage);
+                        if (words == null) continue;
+                        java.util.List<VoiceManager.Sentence> adjacent =
+                                VoiceManager.buildSentences(words);
+                        if (VoiceManager.wordExistsInSentences(adjacent, tapWord)) {
+                            // Found on adjacent page — use it for this tap
+                            pageSentences = adjacent;
+                            sentencesBuiltForPage = dc.getCurentPage(); // keep cache consistent
+                            LOG.d("TTS tap", "word found on adjacent page tile offset", dir * delta);
+                            break outer;
+                        }
+                    }
+                }
+            }
+
+            if (!pageSentences.isEmpty()) {
                 targetParagraph = VoiceManager.findSentenceByWord(pageSentences, tapWord, yFraction);
                 LOG.d("TTS tap", "word=", tapWord, "y=", y, "→ sentence", targetParagraph);
             }

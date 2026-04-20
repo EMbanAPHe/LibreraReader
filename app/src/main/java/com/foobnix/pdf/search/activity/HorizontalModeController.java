@@ -357,6 +357,11 @@ public abstract class HorizontalModeController extends DocumentController {
     }
 
     @Override
+    public org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWordsForPage(int docPageIndex) {
+        return getPageText(docPageIndex);
+    }
+
+    @Override
     public void highlightWords(java.util.List<org.ebookdroid.droids.mupdf.codec.TextWord> words) {
         // Horizontal mode: PageImaveView reads PageImageState.getSelectedWords(pageNumber).
         // InvalidateMessage triggers PageImaveView.invalidate() which redraws with the new words.

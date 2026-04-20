@@ -272,9 +272,24 @@ public class VoiceManager {
         return best;
     }
 
-    // -------------------------------------------------------------------------
-    // Best-match sentence lookup by tapped word
-    // -------------------------------------------------------------------------
+    /**
+     * Returns true if any sentence in the list contains the given word.
+     * Used by startTTSFromTap to decide whether to try adjacent page tiles.
+     */
+    public static boolean wordExistsInSentences(List<Sentence> sentences, String word) {
+        if (sentences == null || word == null || word.isEmpty()) return false;
+        final String needle = word.toLowerCase().replaceAll("[^\\p{L}\\p{N}]", "");
+        if (needle.isEmpty()) return false;
+        for (Sentence s : sentences) {
+            for (TextWord w : s.words) {
+                String wClean = w.w.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
+                if (wClean.equals(needle)) return true;
+            }
+        }
+        return false;
+    }
+
+
 
     /**
      * Find the sentence index containing a specific tapped word.

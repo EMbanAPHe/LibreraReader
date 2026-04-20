@@ -823,12 +823,16 @@ public abstract class DocumentController {
 
     /**
      * Return the TextWord[][] grid for the current page.
-     * TextWord extends RectF — each word carries its bounding box in page-normalized
-     * coords (0..1 for EPUB text format). Used by VoiceManager to build sentences
-     * with exact positions for direct highlighting and tap hit-testing.
-     * Returns null if the page has no text layer (images, scanned PDFs).
+     * Returns null if the page has no text layer.
      */
     public abstract org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords();
+
+    /**
+     * Return the TextWord[][] grid for a specific page by doc index.
+     * Used by startTTSFromTap to search adjacent pages when the tapped word
+     * is on a different page tile than getCurentPage() returns.
+     */
+    public abstract org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWordsForPage(int docPageIndex);
 
     /**
      * Highlight a list of TextWord objects on the current page and trigger a redraw.
