@@ -1570,18 +1570,27 @@ public class DocumentWrapperUI {
         try {
             ensureSentences();
 
+            // Consume the word captured by AdvGuestureDetector.onDoubleTap().
+            // processLongTap() uses the rendering engine's exact TextWord bounding boxes,
+            // properly scroll-corrected — more accurate than Y-fraction which ignores scroll.
+            String tapWord = pendingTapWord;
+            pendingTapWord = null;
+
             if (!pageSentences.isEmpty()) {
-                // Convert tap screen-Y to a page fraction in [0..1]
+                // Y-fraction as a tiebreaker when the same word appears in multiple sentences.
+                // tapY/viewHeight is approximate (ignores page scroll offset) but good enough
+                // for disambiguation since duplicate words are rarely many pages apart.
                 int viewHeight = a.getWindow().getDecorView().getHeight();
                 float yFraction = (viewHeight > 0)
                         ? Math.max(0f, Math.min(1f, (float) y / viewHeight))
                         : 0.5f;
-                targetParagraph = VoiceManager.findSentenceIndex(pageSentences, yFraction);
-                LOG.d("TTS tap", "y=", y, "yFrac=", yFraction, "→ sentence", targetParagraph);
-            }
 
-            // Clear stale tap word
-            pendingTapWord = null;
+                // findSentenceByWord: find sentence containing the tapped word (coordinate-
+                // independent), using Y-fraction only to break ties. Falls back to pure
+                // Y-fraction if the word is null or not found in any sentence.
+                targetParagraph = VoiceManager.findSentenceByWord(pageSentences, tapWord, yFraction);
+                LOG.d("TTS tap", "word=", tapWord, "y=", y, "→ sentence", targetParagraph);
+            }
         } catch (Exception e) {
             LOG.e(e);
         }

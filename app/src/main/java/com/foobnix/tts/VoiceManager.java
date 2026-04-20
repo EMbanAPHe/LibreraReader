@@ -273,8 +273,77 @@ public class VoiceManager {
     }
 
     // -------------------------------------------------------------------------
-    // Best-match sentence lookup by spoken text
+    // Best-match sentence lookup by tapped word
     // -------------------------------------------------------------------------
+
+    /**
+     * Find the sentence index containing a specific tapped word.
+     *
+     * Used by startTTSFromTap. The tapped word comes from AdvGuestureDetector
+     * calling processLongTap(true, e, e, false) which uses the rendering engine's
+     * exact TextWord bounding boxes — pixel-accurate and scroll-corrected.
+     * This is coordinate-system independent (we compare strings, not positions).
+     *
+     * When the same word appears in multiple sentences (e.g. "the" appears everywhere),
+     * yFractionHint picks the sentence whose yCenter is closest to tapY/viewHeight.
+     * yCenter is in [0..1] page-normalized space; yFractionHint should also be in [0..1].
+     *
+     * Falls back to pure yFractionHint if no sentence contains the word.
+     *
+     * @param sentences       sentence list from getSentences()
+     * @param tappedWord      the raw word string returned by processLongTap, lowercased
+     *                        with punctuation stripped. May be null/empty.
+     * @param yFractionHint   tapY / viewHeight as a rough position hint for tie-breaking
+     */
+    public static int findSentenceByWord(List<Sentence> sentences,
+                                          String tappedWord,
+                                          float yFractionHint) {
+        if (sentences == null || sentences.isEmpty()) return 0;
+        if (tappedWord == null || tappedWord.isEmpty()) {
+            return findSentenceIndex(sentences, yFractionHint);
+        }
+
+        final String needle = tappedWord.toLowerCase().replaceAll("[^\\p{L}\\p{N}]", "");
+        if (needle.isEmpty()) return findSentenceIndex(sentences, yFractionHint);
+
+        // Find all candidate sentences that contain the tapped word
+        List<Sentence> candidates = new java.util.ArrayList<>();
+        for (Sentence s : sentences) {
+            for (TextWord word : s.words) {
+                String w = word.w.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase();
+                if (w.equals(needle)) {
+                    candidates.add(s);
+                    break;
+                }
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            // Word not found (possibly from a hyphenated word or TTS artefact)
+            // Fall back to Y-fraction
+            return findSentenceIndex(sentences, yFractionHint);
+        }
+
+        if (candidates.size() == 1) {
+            return candidates.get(0).index;
+        }
+
+        // Multiple sentences contain the word — pick the one closest to the tap Y
+        Sentence best = candidates.get(0);
+        float bestDist = Math.abs(best.yCenter - yFractionHint);
+        for (int i = 1; i < candidates.size(); i++) {
+            float dist = Math.abs(candidates.get(i).yCenter - yFractionHint);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = candidates.get(i);
+            }
+        }
+        LOG.d(TAG, "findSentenceByWord", "word=", needle,
+              "candidates=", candidates.size(), "→", best.index);
+        return best.index;
+    }
+
+
 
     /**
      * Find the sentence whose word content best matches the spoken text.
