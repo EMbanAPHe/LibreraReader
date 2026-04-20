@@ -38,7 +38,7 @@ public class Page {
     RectF zoomedBounds;
 
     List<PageLink> links;
-    TextWord[][] texts;
+    public TextWord[][] texts;
     public List<TextWord> selectedText = new ArrayList<TextWord>();
     public List<Annotation> annotations;
 
