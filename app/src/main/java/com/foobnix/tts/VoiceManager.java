@@ -142,7 +142,7 @@ public class VoiceManager {
      * 4. Map each char range back to the TextWord slice.
      * 5. Compute yCenter from the first and last word's bounding boxes.
      */
-    static List<Sentence> buildSentences(TextWord[][] pageWords) {
+    public static List<Sentence> buildSentences(TextWord[][] pageWords) {
         List<Sentence> result = new ArrayList<>();
         if (pageWords == null || pageWords.length == 0) return result;
 
