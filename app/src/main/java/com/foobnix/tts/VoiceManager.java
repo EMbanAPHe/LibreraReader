@@ -220,8 +220,8 @@ public class VoiceManager {
         try {
             if (!com.foobnix.model.AppState.get().isEnalbeTTSReplacements) return text;
             // Apply system replacements from lineTTSReplacements3
-            com.foobnix.android.utils.LinkedJSONObject obj =
-                    new com.foobnix.android.utils.LinkedJSONObject(
+            org.librera.LinkedJSONObject obj =
+                    new org.librera.LinkedJSONObject(
                             com.foobnix.model.AppState.get().lineTTSReplacements3);
             java.util.Iterator<String> keys = obj.keys();
             while (keys.hasNext()) {
