@@ -421,7 +421,7 @@ public class EMBReaderActivity extends Activity {
 
             @Override
             public void onError(int idx, Exception e) {
-                LOG.e(TAG, "SynthesisQueue error at sentence", idx, e);
+                LOG.e(e, TAG, "SynthesisQueue error at sentence", idx);
                 // Non-fatal: queue internally skips the failed sentence
             }
         });
