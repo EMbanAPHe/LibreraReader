@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    EMBReaderActivity layout.
+    WebView fills all available height; TTS control bar is pinned to the bottom.
+    RelativeLayout lets the bar anchor to the bottom and the WebView fill above it.
+    The WebView's HTML already has 80px bottom padding so the last sentence is
+    never obscured by the control bar.
+-->
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#fdf6e3">
+
+    <!-- ── Chapter article WebView ── -->
+    <WebView
+        android:id="@+id/emb_webview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@+id/emb_tts_bar"
+        android:scrollbars="vertical"
+        android:overScrollMode="ifContentScrolls" />
+
+    <!-- ── TTS control bar ── -->
+    <LinearLayout
+        android:id="@+id/emb_tts_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#CC1a1a1a"
+        android:paddingTop="8dip"
+        android:paddingBottom="8dip"
+        android:paddingStart="6dip"
+        android:paddingEnd="6dip">
+
+        <!-- ← Prev sentence -->
+        <ImageView
+            android:id="@+id/emb_btn_prev"
+            android:layout_width="@dimen/wh_tts_button"
+            android:layout_height="@dimen/wh_tts_button"
+            android:background="@drawable/bg_clickable"
+            android:src="@drawable/glyphicons_173_rewind"
+            android:contentDescription="Previous sentence"
+            android:padding="4dp" />
+
+        <!-- ▶ / ‖ Play-pause -->
+        <ImageView
+            android:id="@+id/emb_btn_play_pause"
+            android:layout_width="@dimen/wh_tts_button"
+            android:layout_height="@dimen/wh_tts_button"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_clickable"
+            android:src="@drawable/my_glyphicons_smileys_100_headphones_play"
+            android:contentDescription="Play / Pause"
+            android:padding="2dp" />
+
+        <!-- → Next sentence -->
+        <ImageView
+            android:id="@+id/emb_btn_next"
+            android:layout_width="@dimen/wh_tts_button"
+            android:layout_height="@dimen/wh_tts_button"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_clickable"
+            android:src="@drawable/glyphicons_177_forward"
+            android:contentDescription="Next sentence"
+            android:padding="4dp" />
+
+        <!-- N / total progress counter — takes remaining horizontal space -->
+        <TextView
+            android:id="@+id/emb_tv_progress"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:singleLine="true"
+            android:text="—" />
+
+        <!-- ✕ Close / back to reader -->
+        <ImageView
+            android:id="@+id/emb_btn_close"
+            android:layout_width="@dimen/wh_tts_button"
+            android:layout_height="@dimen/wh_tts_button"
+            android:background="@drawable/bg_clickable"
+            android:src="@drawable/glyphicons_599_menu_close"
+            android:contentDescription="Close"
+            android:padding="8dp" />
+
+    </LinearLayout>
+
+</RelativeLayout>

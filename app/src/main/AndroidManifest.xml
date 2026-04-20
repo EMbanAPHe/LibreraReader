@@ -238,6 +238,11 @@
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:windowSoftInputMode="adjustPan" />
+        <activity
+            android:name="com.foobnix.pdf.search.activity.EMBReaderActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustNothing"
+            android:exported="false" />
 
         <activity
             android:name="org.ebookdroid.ui.viewer.VerticalViewActivity"
