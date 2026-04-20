@@ -830,6 +830,26 @@ public abstract class DocumentController {
      */
     public abstract org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords();
 
+    /**
+     * Highlight a list of TextWord objects on the current page and trigger a redraw.
+     *
+     * IMPORTANT: Vertical and horizontal modes use completely different rendering
+     * pipelines for highlights:
+     *   - Vertical mode: EventDraw reads page.selectedText on the ebookdroid Page object.
+     *     Redraw via ctr.getDocumentController().toggleRenderingEffects().
+     *   - Horizontal mode: PageImaveView reads PageImageState.getSelectedWords(pageNumber).
+     *     Redraw via EventBus.post(new InvalidateMessage()) which PageImaveView subscribes to.
+     *
+     * This method abstracts that difference. Callers (DocumentWrapperUI.onTtsHighlight)
+     * simply call dc.highlightWords(sentence.words) and the correct pipeline is used.
+     */
+    public abstract void highlightWords(java.util.List<org.ebookdroid.droids.mupdf.codec.TextWord> words);
+
+    /**
+     * Clear any active highlight on the current page and trigger a redraw.
+     */
+    public abstract void clearHighlight();
+
     public abstract List<PageLink> getLinksForPage(int page);
 
     public void onAnnotationTap(long pageHander, int page, int index) {

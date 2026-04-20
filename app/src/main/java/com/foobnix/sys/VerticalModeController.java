@@ -417,7 +417,52 @@ public class VerticalModeController extends DocumentController {
 
     @Override
     public org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords() {
-        return ctr.getDecodeService().getTextForPage(getCurentPageFirst1() - 1);
+        try {
+            int pageIdx = getCurentPageFirst1() - 1;
+            // Prefer the already-cached page.texts from the model (populated during rendering)
+            // over opening a fresh CodecPage, since the codec page may already be recycled.
+            org.ebookdroid.core.Page page =
+                    ctr.getDocumentModel().getPageByDocIndex(pageIdx);
+            if (page != null && page.texts != null) {
+                return page.texts;
+            }
+            // Fallback: open CodecPage directly (first load before render completes)
+            return ctr.getDecodeService().getTextForPage(pageIdx);
+        } catch (Exception e) {
+            LOG.e(e);
+            return null;
+        }
+    }
+
+    @Override
+    public void highlightWords(java.util.List<org.ebookdroid.droids.mupdf.codec.TextWord> words) {
+        try {
+            int pageIdx = getCurentPageFirst1() - 1;
+            org.ebookdroid.core.Page page =
+                    ctr.getDocumentModel().getPageByDocIndex(pageIdx);
+            if (page == null) return;
+            // Set directly on the Page object — EventDraw.drawSelectedText reads this
+            page.selectedText.clear();
+            if (words != null) page.selectedText.addAll(words);
+            // toggleRenderingEffects triggers a full redraw via EventPool
+            ctr.getDocumentController().toggleRenderingEffects();
+        } catch (Exception e) {
+            LOG.e(e);
+        }
+    }
+
+    @Override
+    public void clearHighlight() {
+        try {
+            int pageIdx = getCurentPageFirst1() - 1;
+            org.ebookdroid.core.Page page =
+                    ctr.getDocumentModel().getPageByDocIndex(pageIdx);
+            if (page == null) return;
+            page.selectedText.clear();
+            ctr.getDocumentController().toggleRenderingEffects();
+        } catch (Exception e) {
+            LOG.e(e);
+        }
     }
 
 

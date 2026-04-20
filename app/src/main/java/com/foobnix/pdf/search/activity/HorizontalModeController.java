@@ -27,6 +27,7 @@ import com.foobnix.pdf.info.model.BookCSS;
 import com.foobnix.pdf.info.model.OutlineLinkWrapper;
 import com.foobnix.pdf.info.wrapper.DocumentController;
 import com.foobnix.pdf.search.activity.msg.InvalidateMessage;
+import com.foobnix.pdf.search.activity.PageImageState;
 import com.foobnix.pdf.search.activity.msg.MessageAutoFit;
 import com.foobnix.pdf.search.activity.msg.MessageCenterHorizontally;
 import com.foobnix.pdf.search.activity.msg.MessagePageXY;
@@ -353,6 +354,26 @@ public abstract class HorizontalModeController extends DocumentController {
     @Override
     public org.ebookdroid.droids.mupdf.codec.TextWord[][] getPageWords() {
         return getPageText(getCurentPageFirst1() - 1);
+    }
+
+    @Override
+    public void highlightWords(java.util.List<org.ebookdroid.droids.mupdf.codec.TextWord> words) {
+        // Horizontal mode: PageImaveView reads PageImageState.getSelectedWords(pageNumber).
+        // InvalidateMessage triggers PageImaveView.invalidate() which redraws with the new words.
+        int pageIdx = getCurentPageFirst1() - 1;
+        PageImageState.get().cleanSelectedWords();
+        if (words != null) {
+            for (org.ebookdroid.droids.mupdf.codec.TextWord word : words) {
+                PageImageState.get().addWord(pageIdx, word);
+            }
+        }
+        EventBus.getDefault().post(new InvalidateMessage());
+    }
+
+    @Override
+    public void clearHighlight() {
+        PageImageState.get().cleanSelectedWords();
+        EventBus.getDefault().post(new InvalidateMessage());
     }
 
     @Override public List<PageLink> getLinksForPage(int page) {

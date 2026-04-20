@@ -487,15 +487,15 @@ public class DocumentWrapperUI {
                         pageSentences,
                         event.text,
                         event.paragIndex,
-                        pageSentences.size() // proxy for totalParags
+                        pageSentences.size()
                 );
                 if (sentence != null) {
-                    PageImageState.get().cleanSelectedWords();
-                    int pageIdx = dc.getCurentPage() - 1;
-                    for (org.ebookdroid.droids.mupdf.codec.TextWord word : sentence.words) {
-                        PageImageState.get().addWord(pageIdx, word);
-                    }
-                    EventBus.getDefault().post(new InvalidateMessage());
+                    // dc.highlightWords() uses the correct pipeline for the current mode:
+                    //   Vertical: sets page.selectedText + toggleRenderingEffects()
+                    //   Horizontal: sets PageImageState + posts InvalidateMessage
+                    // This is why the old code (PageImageState + InvalidateMessage only)
+                    // never worked in vertical mode — wrong pipeline entirely.
+                    dc.highlightWords(sentence.words);
                 }
             }
         } catch (Exception e) {
