@@ -32,6 +32,7 @@ import com.foobnix.pdf.info.model.BookCSS;
 import com.foobnix.pdf.info.view.MyPopupMenu;
 import com.foobnix.pdf.info.wrapper.DocumentController;
 import com.foobnix.pdf.info.wrapper.MagicHelper;
+import com.foobnix.pdf.search.activity.EMBReaderActivity;
 
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
@@ -124,6 +125,18 @@ public class TTSControlsView extends FrameLayout {
         TintUtil.setTintImageWithAlpha(ttsPrevTrack, colorTint, alpha);
         TintUtil.setTintImageWithAlpha(ttsNextTrack, colorTint, alpha);
         TintUtil.setTintText(trackName, colorTint);
+
+        // Article view button — launches EMBReaderActivity
+        final ImageView ttsArticleView = (ImageView) view.findViewById(R.id.ttsArticleView);
+        TintUtil.setTintImageWithAlpha(ttsArticleView, colorTint, alpha);
+        ttsArticleView.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (controller != null) {
+                    EMBReaderActivity.launch(controller);
+                }
+            }
+        });
 
         // TxtUtils.updateAllLinks(view);
 
@@ -289,6 +302,7 @@ public class TTSControlsView extends FrameLayout {
         Apps.accessibilityButtonSize(ttsPrevTrack);
         Apps.accessibilityButtonSize(ttsDialog);
         Apps.accessibilityButtonSize(ttsStop);
+        Apps.accessibilityButtonSize(ttsArticleView);
 
     }
 
