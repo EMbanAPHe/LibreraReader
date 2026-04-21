@@ -29,7 +29,10 @@ public class AppSP {
     public boolean isLocked = false;
     public boolean isFirstTimeVertical = true;
     public boolean isFirstTimeHorizontal = true;
-    
+
+    /** When true, opening a book launches EMBReaderActivity instead of the tile-based view. */
+    public boolean embModeDefault = false;
+
     public int readingMode = AppState.READING_MODE_BOOK;
     public long syncTime;
     public int syncTimeStatus;

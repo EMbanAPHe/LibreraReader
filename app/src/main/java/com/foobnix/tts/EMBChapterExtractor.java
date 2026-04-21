@@ -1,5 +1,7 @@
 package com.foobnix.tts;
 
+import android.graphics.Color;
+
 import com.foobnix.android.utils.LOG;
 import com.foobnix.android.utils.TxtUtils;
 import com.foobnix.pdf.info.model.OutlineLinkWrapper;
@@ -13,58 +15,99 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * EMBChapterExtractor — extracts chapter text and builds a self-contained HTML
- * document for EMBReaderActivity's WebView.
+ * EMBChapterExtractor — extracts chapter text and builds a themed, self-contained
+ * HTML document for EMBReaderActivity's WebView.
  *
  * CHAPTER BOUNDARY DETECTION
  * --------------------------
- * Uses dc.getOutline() (via the caller-supplied List<OutlineLinkWrapper>) to find
- * the page range for the chapter containing currentPage. Each OutlineLinkWrapper
- * has a targetPage (1-indexed). We find the entry whose targetPage <= currentPage+1
- * and the next entry gives the exclusive end.
+ * Uses the caller-supplied List<OutlineLinkWrapper> (from dc.getOutline()) to find
+ * the page range for the chapter that contains currentPage. OutlineLinkWrapper.targetPage
+ * is 1-indexed. We find the entry whose targetPage <= currentPage+1, and the next
+ * entry gives the exclusive end.
  *
- * Fallback (outline absent or sparse): a FALLBACK_WINDOW page window centred on
- * the current page. The manual override path passes an explicit [startPage, endPage)
- * from the chapter picker dialog (see EMBReaderActivity).
+ * Fallback when outline is absent or sparse: a FALLBACK_WINDOW page window.
  *
- * HTML ASSEMBLY
- * -------------
- * 1. For each page in the range: dc.getPage(p).getPageHTML() → raw MuPDF HTML.
- * 2. Parse raw HTML into paragraph blocks (split on <p> boundaries).
- * 3. For each paragraph: strip tags → plain text → BreakIterator sentences.
- * 4. Each sentence becomes:
- *      <span id="sent-N" class="tts-sent">escaped text</span>
- * 5. Sentences and their span IDs are the shared index space used by both the
- *    WebView JS highlight API and SynthesisQueue's callback index.
+ * HTML / SENTENCE STRUCTURE
+ * -------------------------
+ * Each sentence is wrapped in:
+ *   <span id="sent-N" class="tts-sent">text</span>
  *
- * OUTPUT
- * ------
- * ChapterContent.html     — full self-contained HTML (CSS + JS + body)
- * ChapterContent.sentences — List<String> of plain-text sentences, same order as spans
- * ChapterContent.startPage / endPage — 0-indexed, [start, end)
- * ChapterContent.title    — chapter title from outline entry, or ""
+ * JS functions injected inline:
+ *   highlightSentence(n)  — add .tts-active, smooth scroll into view
+ *   getSentenceAt(x, y)   — hit-test a tap coordinate → sent index
+ *   getTotalSentences()   — returns sentence count (Java sanity check)
+ *
+ * THEME
+ * -----
+ * Call extract() or extractRange() with a ThemeParams. EMBReaderActivity
+ * reads the live AppState/BookCSS values and passes them here.
  */
 public class EMBChapterExtractor {
 
     private static final String TAG = "EMBChapterExtractor";
-
-    /** Used when the outline is absent or has only one entry. */
     private static final int FALLBACK_WINDOW = 25;
 
     // -------------------------------------------------------------------------
-    // Public API
+    // Theme params
+    // -------------------------------------------------------------------------
+
+    public static class ThemeParams {
+        public final String bgColor;       // CSS hex e.g. "#1a1a1a"
+        public final String textColor;     // CSS hex e.g. "#f0f0f0"
+        public final String highlightColor;// CSS hex e.g. "#5c4a00"
+        public final String barBgColor;    // control bar background
+        public final float fontSizeSp;     // body font size
+        public final String fontFace;      // font-family CSS value
+
+        public ThemeParams(int bgColorInt, int textColorInt, int highlightColorInt,
+                           float fontSizeSp, String fontFace) {
+            this.bgColor        = toHex(bgColorInt);
+            this.textColor      = toHex(textColorInt);
+            this.highlightColor = toHex(highlightColorInt);
+            // Control bar is always dark regardless of theme
+            this.barBgColor     = "#CC1a1a1a";
+            this.fontSizeSp     = fontSizeSp;
+            this.fontFace       = (fontFace != null && !fontFace.isEmpty())
+                                  ? fontFace : "Georgia, 'Noto Serif', serif";
+        }
+
+        /** Default light theme — used when AppState is not available. */
+        public static ThemeParams light() {
+            return new ThemeParams(
+                Color.parseColor("#fdf6e3"),
+                Color.parseColor("#1a1a1a"),
+                Color.parseColor("#ffe082"),
+                19f, "Georgia, 'Noto Serif', serif");
+        }
+
+        /** Default dark theme. */
+        public static ThemeParams dark() {
+            return new ThemeParams(
+                Color.parseColor("#1a1a1a"),
+                Color.parseColor("#e8e8e8"),
+                Color.parseColor("#5c4a00"),
+                19f, "Georgia, 'Noto Serif', serif");
+        }
+
+        private static String toHex(int color) {
+            return String.format("#%06X", 0xFFFFFF & color);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Output
     // -------------------------------------------------------------------------
 
     public static class ChapterContent {
-        /** Full HTML document with sent-N spans and inline CSS/JS. */
+        /** Full self-contained HTML document. */
         public final String html;
-        /** Plain-text sentences in the same order as the sent-N spans. For TTS. */
+        /** Plain-text sentences, same order as sent-N spans. */
         public final List<String> sentences;
-        /** First page of the extracted range (0-indexed, inclusive). */
+        /** First page of extracted range (0-indexed, inclusive). */
         public final int startPage;
-        /** Last page of the extracted range (0-indexed, exclusive). */
+        /** Last page of extracted range (0-indexed, exclusive). */
         public final int endPage;
-        /** Chapter title from the outline entry, or "" if unknown. */
+        /** Chapter title from outline, or "". */
         public final String title;
 
         ChapterContent(String html, List<String> sentences,
@@ -77,61 +120,58 @@ public class EMBChapterExtractor {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
+
     /**
      * Extract chapter content using automatic boundary detection.
      *
-     * @param dc          open CodecDocument (caller is responsible for recycle)
-     * @param currentPage 0-indexed current page in the document
-     * @param outline     loaded outline wrappers (may be null or empty)
+     * @param dc          open CodecDocument (caller recycles it)
+     * @param currentPage 0-indexed current page
+     * @param outline     loaded outline wrappers (may be null/empty)
+     * @param theme       visual theme params
      */
     public static ChapterContent extract(
             CodecDocument dc,
             int currentPage,
-            List<OutlineLinkWrapper> outline) {
+            List<OutlineLinkWrapper> outline,
+            ThemeParams theme) {
 
         int totalPages = dc.getPageCount();
-        int chapterStart;
-        int chapterEnd;
+        int chapterStart, chapterEnd;
         String title = "";
 
         if (outline != null && outline.size() > 1) {
-            // Find outline entry containing currentPage (targetPage is 1-indexed)
             int bestIdx = 0;
             for (int i = 0; i < outline.size(); i++) {
                 int tp = outline.get(i).targetPage - 1; // to 0-indexed
-                if (tp <= currentPage) {
-                    bestIdx = i;
-                } else {
-                    break;
-                }
+                if (tp <= currentPage) bestIdx = i;
+                else break;
             }
             chapterStart = Math.max(0, outline.get(bestIdx).targetPage - 1);
             title = outline.get(bestIdx).getTitleAsString();
-
-            // Next entry gives exclusive end; last entry → end of book
             if (bestIdx + 1 < outline.size()) {
                 int nextStart = outline.get(bestIdx + 1).targetPage - 1;
-                chapterEnd = (nextStart > chapterStart) ? nextStart : totalPages;
+                chapterEnd = nextStart > chapterStart ? nextStart : totalPages;
             } else {
                 chapterEnd = totalPages;
             }
-            LOG.d(TAG, "outline chapter:", chapterStart, "->", chapterEnd, "|", title);
+            LOG.d(TAG, "chapter pages:", chapterStart, "->", chapterEnd, "|", title);
         } else {
-            // Fallback: symmetric window
             chapterStart = Math.max(0, currentPage - FALLBACK_WINDOW);
             chapterEnd   = Math.min(totalPages, currentPage + FALLBACK_WINDOW);
-            LOG.d(TAG, "fallback window:", chapterStart, "->", chapterEnd);
         }
 
-        return extractRange(dc, chapterStart, chapterEnd, title);
+        return extractRange(dc, chapterStart, chapterEnd, title, theme);
     }
 
-    /**
-     * Extract an explicit page range — used by the manual chapter picker.
-     */
+    /** Extract an explicit page range — used by the manual chapter picker. */
     public static ChapterContent extractRange(
-            CodecDocument dc, int startPage, int endPage, String title) {
+            CodecDocument dc, int startPage, int endPage,
+            String title, ThemeParams theme) {
 
+        if (theme == null) theme = ThemeParams.light();
         int totalPages = dc.getPageCount();
         startPage = Math.max(0, startPage);
         endPage   = Math.min(totalPages, endPage);
@@ -139,7 +179,7 @@ public class EMBChapterExtractor {
         List<String> sentences = new ArrayList<>();
         StringBuilder html = new StringBuilder();
 
-        buildHtmlHead(html, title);
+        buildHtmlHead(html, title, theme);
 
         int sentIdx = 0;
 
@@ -152,21 +192,16 @@ public class EMBChapterExtractor {
                 String rawHtml = page.getPageHTML();
                 if (TxtUtils.isEmpty(rawHtml)) continue;
 
-                // Visual separator between pages (subtle horizontal rule)
                 if (p > startPage) {
                     html.append("<div class='page-sep'></div>\n");
                 }
 
-                // Parse this page's HTML into (plainText, innerHtml) paragraph pairs
-                List<String[]> paragraphs = parseParagraphs(rawHtml);
+                List<String> paragraphs = parseParagraphs(rawHtml);
 
-                for (String[] para : paragraphs) {
-                    String paraPlain = para[0];
+                for (String paraPlain : paragraphs) {
                     if (paraPlain.trim().isEmpty()) continue;
 
                     html.append("<p>");
-
-                    // Split paragraph plain text into sentences
                     BreakIterator bi = BreakIterator.getSentenceInstance(Locale.getDefault());
                     bi.setText(paraPlain);
 
@@ -183,7 +218,6 @@ public class EMBChapterExtractor {
                         sentences.add(sent);
                         sentIdx++;
                     }
-
                     html.append("</p>\n");
                 }
 
@@ -198,46 +232,28 @@ public class EMBChapterExtractor {
 
         html.append("</div></body></html>");
 
-        LOG.d(TAG, "extracted", sentIdx, "sentences across pages", startPage, "->", endPage);
+        LOG.d(TAG, "extracted", sentIdx, "sentences, pages", startPage, "->", endPage);
         return new ChapterContent(html.toString(), sentences, startPage, endPage, title);
     }
 
     // -------------------------------------------------------------------------
-    // HTML parsing
+    // Paragraph parsing
     // -------------------------------------------------------------------------
 
-    /**
-     * Parse a MuPDF page HTML string into paragraph plain-text strings.
-     *
-     * MuPDF EPUB HTML structure (typical):
-     *   <p>Normal text <b>bold</b> more text<end-line>continued</p>
-     *   <p>Next paragraph.</p>
-     *
-     * Strategy:
-     *   1. Split on </p> to get paragraph blocks.
-     *   2. Strip all tags → plain text for BreakIterator.
-     *   3. Clean up hyphenation artifacts and whitespace.
-     *
-     * Returns list of [plainText] strings. One entry per non-empty paragraph.
-     */
-    private static List<String[]> parseParagraphs(String rawHtml) {
-        List<String[]> result = new ArrayList<>();
-
-        // Split on paragraph end tags (keep both <p>...</p> and bare text blocks)
+    private static List<String> parseParagraphs(String rawHtml) {
+        List<String> result = new ArrayList<>();
         String[] blocks = rawHtml.split("</p>");
 
         for (String block : blocks) {
-            // Strip opening <p> tag and any leading whitespace
             String content = block.replaceFirst("(?i)^[\\s\\S]*?<p>", "");
             if (content.isEmpty()) content = block;
 
-            // Resolve soft-hyphens: "-<end-line>" means the word continues on next line
-            content = content.replace("-<end-line>", "")
-                             .replace("- <end-line>", "")
-                             .replace("<end-line>", " ")
-                             .replace("<end-block>", " ");
+            content = content
+                .replace("-<end-line>", "")
+                .replace("- <end-line>", "")
+                .replace("<end-line>", " ")
+                .replace("<end-block>", " ");
 
-            // Strip all remaining HTML tags
             String plain = content
                 .replaceAll("<[^>]+>", "")
                 .replace("&nbsp;", " ")
@@ -248,88 +264,74 @@ public class EMBChapterExtractor {
                 .replaceAll("\\s+", " ")
                 .trim();
 
-            if (!plain.isEmpty()) {
-                result.add(new String[]{plain});
-            }
+            if (!plain.isEmpty()) result.add(plain);
         }
 
-        // Fallback: if no </p> found, treat whole page as one block
+        // Fallback: whole page as one block
         if (result.isEmpty() && !rawHtml.trim().isEmpty()) {
             String plain = rawHtml
-                .replace("-<end-line>", "").replace("<end-line>", " ")
+                .replace("-<end-line>", "")
+                .replace("<end-line>", " ")
                 .replaceAll("<[^>]+>", " ")
                 .replace("&nbsp;", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
-            if (!plain.isEmpty()) {
-                result.add(new String[]{plain});
-            }
+            if (!plain.isEmpty()) result.add(plain);
         }
 
         return result;
     }
 
     // -------------------------------------------------------------------------
-    // HTML generation
+    // HTML head + CSS + JS
     // -------------------------------------------------------------------------
 
-    /**
-     * Append the HTML head, CSS, and JS to the builder.
-     * The body and chapter-body div are opened here; caller closes them.
-     */
-    private static void buildHtmlHead(StringBuilder sb, String title) {
+    private static void buildHtmlHead(StringBuilder sb, String title, ThemeParams t) {
         sb.append("<!DOCTYPE html>\n<html>\n<head>\n")
           .append("<meta charset='utf-8'>\n")
           .append("<meta name='viewport' content='width=device-width, initial-scale=1'>\n")
           .append("<style>\n")
-          // Base typography — matches comfortable reading apps
-          .append("  * { box-sizing: border-box; }\n")
+          .append("  * { box-sizing: border-box; margin: 0; padding: 0; }\n")
           .append("  body {\n")
-          .append("    margin: 0;\n")
-          .append("    padding: 20px 18px 80px 18px;\n") // bottom pad clears TTS bar
-          .append("    font-family: Georgia, 'Noto Serif', serif;\n")
-          .append("    font-size: 19px;\n")
+          .append("    padding: 20px 18px 24px 18px;\n")
+          .append("    font-family: ").append(t.fontFace).append(";\n")
+          .append("    font-size: ").append((int) t.fontSizeSp).append("px;\n")
           .append("    line-height: 1.75;\n")
-          .append("    color: #1a1a1a;\n")
-          .append("    background: #fdf6e3;\n") // warm off-white, easy on eyes
+          .append("    color: ").append(t.textColor).append(";\n")
+          .append("    background: ").append(t.bgColor).append(";\n")
           .append("    -webkit-text-size-adjust: 100%;\n")
           .append("  }\n")
           .append("  .chapter-title {\n")
-          .append("    font-size: 1.35em;\n")
+          .append("    font-size: 1.25em;\n")
           .append("    font-weight: bold;\n")
           .append("    line-height: 1.3;\n")
           .append("    margin-bottom: 20px;\n")
           .append("    padding-bottom: 10px;\n")
-          .append("    border-bottom: 1px solid #d4c5a9;\n")
-          .append("    color: #333;\n")
+          .append("    border-bottom: 1px solid rgba(128,128,128,0.3);\n")
           .append("  }\n")
           .append("  .chapter-body p {\n")
-          .append("    margin: 0 0 14px 0;\n")
+          .append("    margin-bottom: 14px;\n")
           .append("    text-align: justify;\n")
           .append("    text-indent: 1.5em;\n")
           .append("  }\n")
           .append("  .chapter-body p:first-child { text-indent: 0; }\n")
-          // Sentence spans — invisible by default, highlighted when TTS is on that sentence
           .append("  .tts-sent {\n")
           .append("    border-radius: 3px;\n")
-          .append("    transition: background-color 0.12s ease;\n")
+          .append("    transition: background-color 0.1s ease;\n")
           .append("    cursor: pointer;\n")
           .append("  }\n")
           .append("  .tts-active {\n")
-          .append("    background-color: #ffe082;\n")
+          .append("    background-color: ").append(t.highlightColor).append(";\n")
           .append("    border-radius: 3px;\n")
           .append("  }\n")
-          // Subtle page separator between source pages
           .append("  .page-sep {\n")
           .append("    height: 1px;\n")
-          .append("    background: #d4c5a9;\n")
+          .append("    background: rgba(128,128,128,0.25);\n")
           .append("    margin: 18px 0;\n")
-          .append("    opacity: 0.5;\n")
           .append("  }\n")
           .append("</style>\n")
-          // Inline JS — highlight API used by EMBReaderActivity via evaluateJavascript
+          // Inline JS
           .append("<script>\n")
-          // highlightSentence(n): activate span sent-n, deactivate previous, scroll to it
           .append("  var _activeSent = -1;\n")
           .append("  function highlightSentence(n) {\n")
           .append("    if (_activeSent >= 0) {\n")
@@ -343,7 +345,6 @@ public class EMBChapterExtractor {
           .append("      el.scrollIntoView({ behavior: 'smooth', block: 'center' });\n")
           .append("    }\n")
           .append("  }\n")
-          // getSentenceAt(x, y): returns the sent-N index at touch coordinates, or -1
           .append("  function getSentenceAt(x, y) {\n")
           .append("    var el = document.elementFromPoint(x, y);\n")
           .append("    while (el && !(el.id && el.id.indexOf('sent-') === 0)) {\n")
@@ -352,14 +353,12 @@ public class EMBChapterExtractor {
           .append("    if (!el || !el.id) return -1;\n")
           .append("    return parseInt(el.id.replace('sent-', ''), 10);\n")
           .append("  }\n")
-          // getTotalSentences(): lets Java verify sentence count after load
           .append("  function getTotalSentences() {\n")
           .append("    return document.querySelectorAll('.tts-sent').length;\n")
           .append("  }\n")
           .append("</script>\n")
           .append("</head>\n<body>\n");
 
-        // Chapter title header (skipped if empty — fallback window case)
         if (title != null && !title.trim().isEmpty()) {
             sb.append("<div class='chapter-title'>")
               .append(escapeHtml(title))

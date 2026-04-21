@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -12,7 +13,10 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.CompoundButton;
 import android.widget.ImageView;
+import android.widget.SeekBar;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -20,13 +24,17 @@ import com.foobnix.android.utils.LOG;
 import com.foobnix.model.AppSP;
 import com.foobnix.model.AppState;
 import com.foobnix.pdf.info.R;
+import com.foobnix.pdf.info.TintUtil;
 import com.foobnix.pdf.info.model.BookCSS;
 import com.foobnix.pdf.info.model.OutlineLinkWrapper;
 import com.foobnix.pdf.info.wrapper.DocumentController;
+import com.foobnix.pdf.info.wrapper.MagicHelper;
 import com.foobnix.sys.ImageExtractor;
 import com.foobnix.tts.EMBChapterExtractor;
 import com.foobnix.tts.SynthesisQueue;
 import com.foobnix.tts.TTSEngine;
+import com.foobnix.tts.TTSNotification;
+import com.foobnix.tts.TTSService;
 
 import org.ebookdroid.core.codec.CodecDocument;
 import org.ebookdroid.core.codec.OutlineLink;
@@ -37,59 +45,36 @@ import java.util.List;
 /**
  * EMBReaderActivity — chapter-as-article TTS reading view.
  *
- * WHAT IT DOES
- * ------------
- * Presents the current chapter as a continuous, scrollable article in a WebView
- * (no page tiles, no page breaks). Each sentence is wrapped in a <span id="sent-N">
- * element. As TTS plays each sentence, the WebView highlights it via
- * evaluateJavascript("highlightSentence(N)") and smooth-scrolls it into view.
+ * FIXES vs v1
+ * -----------
+ * 1. AUDIO OVERLAP: TTSService is explicitly stopped before SynthesisQueue starts.
+ *    In v1, TTSService remained active and played through the Android TTS engine
+ *    simultaneously with SynthesisQueue's synthesizeToFile calls, causing two audio
+ *    streams to mix. Fix: send TTS_STOP_DESTROY in launch() before startActivity().
+ *
+ * 2. CONTROLS CENTRED: weightSum=2 layout (same as tts_mp3_line.xml).
+ *
+ * 3. THEME: reads MagicHelper.getBgColor() / getTextColor() + BookCSS.fontSizeSp
+ *    and passes ThemeParams to EMBChapterExtractor, which injects them into the CSS.
+ *
+ * 4. SETTINGS: ⚙ button toggles an inline panel with speed/pitch seekbars and
+ *    the "open books in Article View by default" switch. Changes take effect live.
+ *
+ * 5. DEFAULT MODE: AppSP.embModeDefault flag. When true, DocumentWrapperUI.onResume()
+ *    auto-launches this activity. The flag is toggled via the settings panel here.
  *
  * LAUNCH
  * ------
- * From DocumentController context (e.g. a button in DocumentWrapperUI or the
- * TTSControlsView):
+ *   EMBReaderActivity.launch(dc);          // from DocumentController context
  *
- *   EMBReaderActivity.launch(dc);
- *
- * The static launch() method extracts path, page, width, height, font from dc.
- *
- * TTS PLAYBACK
- * ------------
- * SynthesisQueue pre-synthesises sentences to WAV files and plays them gaplessly
- * via MediaPlayer.setNextMediaPlayer(). The queue calls back onSentenceStart(idx)
- * on the main thread for each sentence — this is where the WebView highlight fires.
- *
- * CONTROLS
- * --------
- *   ← Prev sentence : stop + restart from currentSentenceIdx - 1
- *   ▶/‖ Play/Pause  : SynthesisQueue.pause() / resume()
- *   → Next sentence : stop + restart from currentSentenceIdx + 1
- *   ✕ Close          : finish() — returns to the main reader
- *   Tap on sentence  : JS getSentenceAt(x, y) → seek to that sentence
- *
- * POSITION PERSISTENCE
- * --------------------
- * AppSP.lastBookParagraph is written on every onSentenceStart callback.
- * On next launch the saved paragraph is used as fromIndex.
- *
- * OUTLINE / CHAPTER DETECTION
- * ----------------------------
- * Automatic: EMBChapterExtractor.extract() uses dc.getOutline() to find the
- * chapter boundaries containing the current page.
- * Manual: not yet implemented — the UI could present a spinner with chapter titles
- * and call EMBChapterExtractor.extractRange() with the selected start/end pages.
- *
- * MANIFEST
- * --------
- * Add to AndroidManifest.xml inside <application>:
- *
+ * MANIFEST entry required (add inside <application>):
  *   <activity
  *       android:name=".pdf.search.activity.EMBReaderActivity"
  *       android:configChanges="orientation|screenSize|keyboardHidden"
  *       android:windowSoftInputMode="adjustNothing"
  *       android:exported="false" />
  */
-@SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
+@SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility", "UseSwitchCompatOrMaterialCode"})
 public class EMBReaderActivity extends Activity {
 
     // -------------------------------------------------------------------------
@@ -98,30 +83,48 @@ public class EMBReaderActivity extends Activity {
 
     public static final String EXTRA_PATH   = "emb_path";
     public static final String EXTRA_PAGE   = "emb_page";    // 0-indexed
-    public static final String EXTRA_PARAG  = "emb_parag";   // sentence index to start from
+    public static final String EXTRA_PARAG  = "emb_parag";   // sentence index to resume from
     public static final String EXTRA_WIDTH  = "emb_width";
     public static final String EXTRA_HEIGHT = "emb_height";
     public static final String EXTRA_FONT   = "emb_font";    // sp
 
     private static final String TAG = "EMBReaderActivity";
 
+    /**
+     * Set to true while EMBReaderActivity is in the foreground so that
+     * DocumentWrapperUI.onResume() doesn't re-launch it when we return.
+     */
+    public static volatile boolean isActive = false;
+
     // -------------------------------------------------------------------------
-    // State
+    // Views
     // -------------------------------------------------------------------------
 
-    private WebView webView;
+    private WebView   webView;
+    private View      settingsPanel;
+    private ImageView btnSettings;
     private ImageView btnPrev;
     private ImageView btnPlayPause;
     private ImageView btnNext;
     private ImageView btnClose;
     private TextView  tvProgress;
+    private SeekBar   seekSpeed;
+    private SeekBar   seekPitch;
+    private TextView  tvSpeed;
+    private TextView  tvPitch;
+    private Switch    switchDefault;
+
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
 
     private EMBChapterExtractor.ChapterContent chapter;
     private SynthesisQueue synthesisQueue;
 
-    private volatile int currentSentenceIdx = 0;
-    private volatile boolean isPlaying = false;
-    private volatile boolean isDestroyed = false; // guards background thread post()
+    private volatile int  currentSentenceIdx = 0;
+    private volatile boolean isPlaying        = false;
+    private volatile boolean pageLoaded       = false; // guard: only start playback once
+    private volatile boolean isDestroyed      = false;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -130,13 +133,18 @@ public class EMBReaderActivity extends Activity {
     // -------------------------------------------------------------------------
 
     /**
-     * Launch from a DocumentController — extracts all required parameters automatically.
+     * Launch from a DocumentController.
+     * Stops TTSService first to prevent audio overlap.
      */
     public static void launch(DocumentController dc) {
         Context ctx = dc.getActivity();
         if (ctx == null) return;
 
-        int page  = dc.getCurentPageFirst1() - 1; // convert to 0-indexed
+        // FIX #1 — stop the old TTS playback engine before starting synthesis
+        ctx.startService(new Intent(TTSNotification.TTS_STOP_DESTROY,
+                null, ctx, TTSService.class));
+
+        int page  = dc.getCurentPageFirst1() - 1; // 0-indexed
         int parag = AppSP.get().lastBookParagraph;
 
         Intent intent = new Intent(ctx, EMBReaderActivity.class);
@@ -149,11 +157,12 @@ public class EMBReaderActivity extends Activity {
         ctx.startActivity(intent);
     }
 
-    /**
-     * Launch with explicit parameters (e.g. from the notification or TTSService).
-     */
+    /** Launch with explicit parameters (from notification, default-mode auto-open, etc.). */
     public static void launch(Context ctx, String path, int page, int parag,
                               int width, int height, int font) {
+        ctx.startService(new Intent(TTSNotification.TTS_STOP_DESTROY,
+                null, ctx, TTSService.class));
+
         Intent intent = new Intent(ctx, EMBReaderActivity.class);
         intent.putExtra(EXTRA_PATH,   path);
         intent.putExtra(EXTRA_PAGE,   page);
@@ -166,7 +175,7 @@ public class EMBReaderActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // Activity lifecycle
+    // Lifecycle
     // -------------------------------------------------------------------------
 
     @Override
@@ -174,23 +183,37 @@ public class EMBReaderActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_emb_reader);
 
-        webView         = findViewById(R.id.emb_webview);
-        btnPrev         = findViewById(R.id.emb_btn_prev);
-        btnPlayPause    = findViewById(R.id.emb_btn_play_pause);
-        btnNext         = findViewById(R.id.emb_btn_next);
-        btnClose        = findViewById(R.id.emb_btn_close);
-        tvProgress      = findViewById(R.id.emb_tv_progress);
+        webView        = findViewById(R.id.emb_webview);
+        settingsPanel  = findViewById(R.id.emb_settings_panel);
+        btnSettings    = findViewById(R.id.emb_btn_settings);
+        btnPrev        = findViewById(R.id.emb_btn_prev);
+        btnPlayPause   = findViewById(R.id.emb_btn_play_pause);
+        btnNext        = findViewById(R.id.emb_btn_next);
+        btnClose       = findViewById(R.id.emb_btn_close);
+        tvProgress     = findViewById(R.id.emb_tv_progress);
+        seekSpeed      = findViewById(R.id.emb_seek_speed);
+        seekPitch      = findViewById(R.id.emb_seek_pitch);
+        tvSpeed        = findViewById(R.id.emb_tv_speed);
+        tvPitch        = findViewById(R.id.emb_tv_pitch);
+        switchDefault  = findViewById(R.id.emb_switch_default);
 
+        applyThemeToBar();
         setupWebView();
         setupControls();
+        setupSettingsPanel();
         loadChapterAsync();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        isActive = true;
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        // Pause synthesis/playback when activity goes to background.
-        // User can resume by tapping the play button on return.
+        isActive = false;
         if (synthesisQueue != null && isPlaying) {
             synthesisQueue.pause();
             isPlaying = false;
@@ -201,6 +224,7 @@ public class EMBReaderActivity extends Activity {
     @Override
     protected void onDestroy() {
         isDestroyed = true;
+        isActive    = false;
         if (synthesisQueue != null) synthesisQueue.stop();
         if (webView != null) {
             webView.stopLoading();
@@ -210,82 +234,212 @@ public class EMBReaderActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // WebView setup
+    // Theme — FIX #3
+    // -------------------------------------------------------------------------
+
+    /** Tint the control bar icons to match the current app theme. */
+    private void applyThemeToBar() {
+        int tint  = MagicHelper.getTintColor();
+        int alpha = 230;
+        TintUtil.setTintImageWithAlpha(btnSettings,  tint, alpha);
+        TintUtil.setTintImageWithAlpha(btnPrev,      tint, alpha);
+        TintUtil.setTintImageWithAlpha(btnPlayPause, tint, alpha);
+        TintUtil.setTintImageWithAlpha(btnNext,      tint, alpha);
+        TintUtil.setTintImageWithAlpha(btnClose,     tint, alpha);
+    }
+
+    /**
+     * Build ThemeParams from the live AppState / BookCSS values.
+     * Called on the background thread just before HTML generation.
+     */
+    private EMBChapterExtractor.ThemeParams buildTheme() {
+        try {
+            int bg   = MagicHelper.getBgColor();
+            int text = MagicHelper.getTextColor();
+
+            // Highlight: warm amber on light themes, muted amber on dark
+            boolean isDark = !AppState.get().isDayNotInvert;
+            int highlight  = isDark
+                ? Color.parseColor("#5c4a00")
+                : Color.parseColor("#ffe082");
+
+            float fontSize = BookCSS.get().fontSizeSp;
+            String font    = buildFontFaceCSS(BookCSS.get().normalFont);
+
+            return new EMBChapterExtractor.ThemeParams(bg, text, highlight, fontSize, font);
+        } catch (Exception e) {
+            LOG.e(e);
+            return EMBChapterExtractor.ThemeParams.light();
+        }
+    }
+
+    /**
+     * Convert a BookCSS font name/path to a CSS font-family value.
+     * If it's a file path to a .ttf/.otf, we can't load it in WebView without
+     * a local file:// base URL. Fall back to a serif stack in that case.
+     */
+    private String buildFontFaceCSS(String normalFont) {
+        if (normalFont == null || normalFont.isEmpty()) {
+            return "Georgia, 'Noto Serif', serif";
+        }
+        if (normalFont.contains("/") || normalFont.contains(".ttf") || normalFont.contains(".otf")) {
+            // Custom file font — can't reference directly; use system serif
+            return "Georgia, 'Noto Serif', serif";
+        }
+        // Named system font — wrap in quotes in case it has spaces
+        return "'" + normalFont + "', Georgia, serif";
+    }
+
+    // -------------------------------------------------------------------------
+    // WebView — FIX #1 guard (pageLoaded flag)
     // -------------------------------------------------------------------------
 
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(false);       // no localStorage needed
+        ws.setDomStorageEnabled(false);
         ws.setBuiltInZoomControls(false);
         ws.setSupportZoom(false);
         ws.setTextZoom(100);
-        ws.setLoadsImagesAutomatically(false); // article view is text-only
+        ws.setLoadsImagesAutomatically(false);
 
-        // JS → Java bridge for tap-to-seek
         webView.addJavascriptInterface(new JsBridge(), "EMB");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // After the HTML has loaded, inject a click listener that calls
-                // EMB.onSentenceTapped(idx) when the user taps a sentence span.
-                webView.evaluateJavascript(
-                    "(function() {" +
-                    "  document.addEventListener('click', function(e) {" +
-                    "    var idx = getSentenceAt(e.clientX, e.clientY);" +
-                    "    if (idx >= 0) { EMB.onSentenceTapped(idx); }" +
-                    "  });" +
-                    "})();",
-                    null
-                );
+                if (isDestroyed || pageLoaded) return; // guard against double fire
+                pageLoaded = true;
 
-                // Start playback from the saved sentence position
+                // Inject tap listener
+                webView.evaluateJavascript(
+                    "(function(){" +
+                    "document.addEventListener('click',function(e){" +
+                    "var idx=getSentenceAt(e.clientX,e.clientY);" +
+                    "if(idx>=0){EMB.onSentenceTapped(idx);}" +
+                    "});" +
+                    "})();", null);
+
                 int fromSentence = getIntent().getIntExtra(EXTRA_PARAG, 0);
-                // Clamp to valid range (the saved parag index may exceed the
-                // sentence count if the user navigated to a different chapter)
-                if (chapter != null) {
-                    fromSentence = Math.min(fromSentence, chapter.sentences.size() - 1);
-                    fromSentence = Math.max(fromSentence, 0);
+                if (chapter != null && !chapter.sentences.isEmpty()) {
+                    fromSentence = Math.max(0,
+                        Math.min(fromSentence, chapter.sentences.size() - 1));
+                } else {
+                    fromSentence = 0;
                 }
 
-                // Brief delay so WebView finishes rendering before we scroll
                 final int startIdx = fromSentence;
+                // Small delay lets WebView finish rendering before we scroll/highlight
                 mainHandler.postDelayed(() -> {
-                    if (!isDestroyed) {
-                        startPlayback(startIdx);
-                    }
-                }, 400);
+                    if (!isDestroyed) startPlayback(startIdx);
+                }, 350);
             }
         });
     }
 
     // -------------------------------------------------------------------------
-    // Control bar
+    // Controls — FIX #2 (centred) handled in XML; wiring here
     // -------------------------------------------------------------------------
 
     private void setupControls() {
-        btnPrev.setOnClickListener(v -> {
-            int target = Math.max(0, currentSentenceIdx - 1);
-            seekToSentence(target);
-        });
+        btnPrev.setOnClickListener(v ->
+            seekToSentence(Math.max(0, currentSentenceIdx - 1)));
 
         btnPlayPause.setOnClickListener(v -> {
-            if (isPlaying) {
-                pausePlayback();
-            } else {
-                resumePlayback();
-            }
+            if (isPlaying) pausePlayback();
+            else           resumePlayback();
         });
 
         btnNext.setOnClickListener(v -> {
             if (chapter == null) return;
-            int target = Math.min(chapter.sentences.size() - 1, currentSentenceIdx + 1);
-            seekToSentence(target);
+            seekToSentence(Math.min(chapter.sentences.size() - 1, currentSentenceIdx + 1));
         });
 
         btnClose.setOnClickListener(v -> finish());
+
+        btnSettings.setOnClickListener(v -> {
+            boolean showing = settingsPanel.getVisibility() == View.VISIBLE;
+            settingsPanel.setVisibility(showing ? View.GONE : View.VISIBLE);
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Settings panel — FIX #4 + FIX #5
+    // -------------------------------------------------------------------------
+
+    private void setupSettingsPanel() {
+        // Initialise from live AppState values
+        float speed = AppState.get().ttsSpeed;
+        float pitch = AppState.get().ttsPitch;
+
+        // SeekBar range 0–20 maps to TTS speed 0.5×–2.5× (step 0.1)
+        seekSpeed.setProgress(speedToProgress(speed));
+        seekPitch.setProgress(speedToProgress(pitch));
+        tvSpeed.setText(formatRate(speed));
+        tvPitch.setText(formatRate(pitch));
+
+        switchDefault.setChecked(AppSP.get().embModeDefault);
+
+        seekSpeed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                float val = progressToSpeed(progress);
+                AppState.get().ttsSpeed = val;
+                tvSpeed.setText(formatRate(val));
+                // Apply to TTS engine live so the next sentence uses the new rate
+                try {
+                    if (TTSEngine.get().isInit()) TTSEngine.get().getTTS().setSpeechRate(val);
+                } catch (Exception ignored) {}
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                // Restart synthesis from current position with new speed
+                if (isPlaying) {
+                    int idx = currentSentenceIdx;
+                    pausePlayback();
+                    seekToSentence(idx);
+                }
+            }
+        });
+
+        seekPitch.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                float val = progressToSpeed(progress);
+                AppState.get().ttsPitch = val;
+                tvPitch.setText(formatRate(val));
+                try {
+                    if (TTSEngine.get().isInit()) TTSEngine.get().getTTS().setPitch(val);
+                } catch (Exception ignored) {}
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                if (isPlaying) {
+                    int idx = currentSentenceIdx;
+                    pausePlayback();
+                    seekToSentence(idx);
+                }
+            }
+        });
+
+        switchDefault.setOnCheckedChangeListener((CompoundButton cb, boolean checked) -> {
+            AppSP.get().embModeDefault = checked;
+            AppSP.get().save();
+        });
+    }
+
+    private float progressToSpeed(int progress) {
+        // 0→0.5, 10→1.0, 20→2.5
+        return 0.5f + progress * 0.1f;
+    }
+
+    private int speedToProgress(float speed) {
+        return Math.max(0, Math.min(20, Math.round((speed - 0.5f) / 0.1f)));
+    }
+
+    private String formatRate(float r) {
+        return String.format("%.1f×", r);
     }
 
     // -------------------------------------------------------------------------
@@ -300,71 +454,53 @@ public class EMBReaderActivity extends Activity {
         final int    font   = getIntent().getIntExtra(EXTRA_FONT,   18);
 
         if (path == null || path.isEmpty()) {
-            Toast.makeText(this, "No book path supplied", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "No book path", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
+
+        // Read theme on main thread before jumping to background
+        final EMBChapterExtractor.ThemeParams theme = buildTheme();
 
         new Thread(() -> {
             CodecDocument dc = null;
             try {
                 dc = ImageExtractor.singleCodecContext(path, "");
-                if (dc == null) {
-                    postError("Cannot open book file");
-                    return;
-                }
+                if (dc == null) { postError("Cannot open book"); return; }
                 dc.getPageCount(width, height, font);
 
                 List<OutlineLinkWrapper> outline = convertOutline(dc.getOutline());
-
                 final EMBChapterExtractor.ChapterContent result =
-                    EMBChapterExtractor.extract(dc, page, outline);
+                    EMBChapterExtractor.extract(dc, page, outline, theme);
 
                 if (isDestroyed) return;
-
                 chapter = result;
+
                 mainHandler.post(() -> {
                     if (isDestroyed) return;
                     updateProgress(0);
-                    // loadDataWithBaseURL with a file:// base so relative assets resolve
                     webView.loadDataWithBaseURL(
                         "file:///android_asset/",
-                        result.html,
-                        "text/html",
-                        "utf-8",
-                        null
-                    );
+                        result.html, "text/html", "utf-8", null);
                 });
 
             } catch (Exception e) {
                 LOG.e(e);
-                postError("Error loading chapter: " + e.getMessage());
+                postError("Error: " + e.getMessage());
             } finally {
-                if (dc != null) {
-                    try { dc.recycle(); } catch (Exception ignored) {}
-                }
+                if (dc != null) try { dc.recycle(); } catch (Exception ignored) {}
             }
         }, "@EMB ChapterLoad").start();
     }
 
-    /**
-     * Convert the codec's raw OutlineLink list to OutlineLinkWrapper list
-     * so EMBChapterExtractor can read targetPage values.
-     */
     private List<OutlineLinkWrapper> convertOutline(List<? extends OutlineLink> raw) {
         List<OutlineLinkWrapper> result = new ArrayList<>();
         if (raw == null) return result;
         for (OutlineLink link : raw) {
             try {
                 OutlineLinkWrapper w = new OutlineLinkWrapper(
-                    link.getTitle(),
-                    link.getLink(),
-                    link.getLevel(),
-                    link.linkUri
-                );
-                if (w.targetPage > 0) { // only entries that resolve to a page number
-                    result.add(w);
-                }
+                    link.getTitle(), link.getLink(), link.getLevel(), link.linkUri);
+                if (w.targetPage > 0) result.add(w);
             } catch (Exception ignored) {}
         }
         return result;
@@ -372,10 +508,7 @@ public class EMBReaderActivity extends Activity {
 
     private void postError(String msg) {
         mainHandler.post(() -> {
-            if (!isDestroyed) {
-                Toast.makeText(EMBReaderActivity.this, msg, Toast.LENGTH_LONG).show();
-                finish();
-            }
+            if (!isDestroyed) { Toast.makeText(this, msg, Toast.LENGTH_LONG).show(); finish(); }
         });
     }
 
@@ -387,42 +520,29 @@ public class EMBReaderActivity extends Activity {
         if (chapter == null || chapter.sentences.isEmpty()) return;
         fromSentence = Math.max(0, Math.min(fromSentence, chapter.sentences.size() - 1));
 
-        // Stop any previous queue before creating a new one
         if (synthesisQueue != null) synthesisQueue.stop();
 
         synthesisQueue = new SynthesisQueue(this, new SynthesisQueue.Callback() {
-
-            @Override
-            public void onSentenceStart(int idx, String text) {
+            @Override public void onSentenceStart(int idx, String text) {
                 currentSentenceIdx = idx;
                 isPlaying = true;
                 mainHandler.post(() -> {
                     if (isDestroyed) return;
-                    // Highlight in WebView
                     webView.evaluateJavascript("highlightSentence(" + idx + ")", null);
                     updateProgress(idx);
                     updatePlayPauseIcon();
-                    // Persist position so the main reader and notification can resume here
                     AppSP.get().lastBookParagraph = idx;
                     AppSP.get().save();
                 });
             }
 
-            @Override
-            public void onFinished() {
+            @Override public void onFinished() {
                 isPlaying = false;
-                currentSentenceIdx = chapter != null ? chapter.sentences.size() - 1 : 0;
-                mainHandler.post(() -> {
-                    if (isDestroyed) return;
-                    updatePlayPauseIcon();
-                    // TODO: optionally auto-advance to the next chapter
-                });
+                mainHandler.post(() -> { if (!isDestroyed) updatePlayPauseIcon(); });
             }
 
-            @Override
-            public void onError(int idx, Exception e) {
-                LOG.e(e, TAG, "SynthesisQueue error at sentence", idx);
-                // Non-fatal: queue internally skips the failed sentence
+            @Override public void onError(int idx, Exception e) {
+                LOG.e(e, TAG, "sentence error at", idx);
             }
         });
 
@@ -430,8 +550,6 @@ public class EMBReaderActivity extends Activity {
         isPlaying = true;
         updatePlayPauseIcon();
         synthesisQueue.start(chapter.sentences, fromSentence);
-
-        // Pre-highlight immediately so the user sees something before audio starts
         webView.evaluateJavascript("highlightSentence(" + fromSentence + ")", null);
     }
 
@@ -447,18 +565,13 @@ public class EMBReaderActivity extends Activity {
             isPlaying = true;
             updatePlayPauseIcon();
         } else {
-            // First play after load, or after a seek that cleared the queue
             startPlayback(currentSentenceIdx);
         }
     }
 
-    /**
-     * Seek to a specific sentence index — stops the current queue and restarts.
-     */
     private void seekToSentence(int idx) {
         if (chapter == null || idx < 0 || idx >= chapter.sentences.size()) return;
         currentSentenceIdx = idx;
-        // Highlight immediately (before synthesis begins) for instant feedback
         webView.evaluateJavascript("highlightSentence(" + idx + ")", null);
         startPlayback(idx);
     }
@@ -469,33 +582,24 @@ public class EMBReaderActivity extends Activity {
 
     private void updateProgress(int idx) {
         if (chapter == null) return;
-        int total = chapter.sentences.size();
-        tvProgress.setText((idx + 1) + " / " + total);
+        tvProgress.setText((idx + 1) + " / " + chapter.sentences.size());
     }
 
     private void updatePlayPauseIcon() {
-        if (isPlaying) {
-            btnPlayPause.setImageResource(R.drawable.glyphicons_174_pause);
-        } else {
-            btnPlayPause.setImageResource(R.drawable.glyphicons_175_play);
-        }
+        btnPlayPause.setImageResource(
+            isPlaying ? R.drawable.glyphicons_174_pause
+                      : R.drawable.glyphicons_175_play);
+        TintUtil.setTintImageWithAlpha(btnPlayPause, MagicHelper.getTintColor(), 230);
     }
 
     // -------------------------------------------------------------------------
-    // JS ↔ Java bridge (tap-to-seek)
+    // JS ↔ Java bridge
     // -------------------------------------------------------------------------
 
-    /**
-     * Called from the injected JS click listener when the user taps a sentence span.
-     * Runs on the WebView's JS thread — must post to main thread for any UI work.
-     */
     private class JsBridge {
         @JavascriptInterface
         public void onSentenceTapped(final int sentIdx) {
-            LOG.d(TAG, "tap → sentence", sentIdx);
-            mainHandler.post(() -> {
-                if (!isDestroyed) seekToSentence(sentIdx);
-            });
+            mainHandler.post(() -> { if (!isDestroyed) seekToSentence(sentIdx); });
         }
     }
 }

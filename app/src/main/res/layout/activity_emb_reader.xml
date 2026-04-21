@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     EMBReaderActivity layout.
-    WebView fills all available height; TTS control bar is pinned to the bottom.
-    RelativeLayout lets the bar anchor to the bottom and the WebView fill above it.
-    The WebView's HTML already has 80px bottom padding so the last sentence is
-    never obscured by the control bar.
+    weightSum=2 on the controls row keeps play/pause exactly centred (same trick as tts_mp3_line.xml).
+    The settings panel slides in above the control bar when ⚙ is tapped.
 -->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#fdf6e3">
+    android:layout_height="match_parent">
 
     <!-- ── Chapter article WebView ── -->
     <WebView
@@ -17,8 +14,111 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_above="@+id/emb_tts_bar"
-        android:scrollbars="vertical"
-        android:overScrollMode="ifContentScrolls" />
+        android:overScrollMode="ifContentScrolls"
+        android:scrollbars="vertical" />
+
+    <!-- ── Settings panel (GONE until ⚙ is tapped) ── -->
+    <LinearLayout
+        android:id="@+id/emb_settings_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/emb_tts_bar"
+        android:background="#EE1a1a1a"
+        android:orientation="vertical"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
+        android:visibility="gone">
+
+        <!-- Speed -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="54dp"
+                android:layout_height="wrap_content"
+                android:text="Speed"
+                android:textColor="#CCFFFFFF"
+                android:textSize="13sp" />
+
+            <SeekBar
+                android:id="@+id/emb_seek_speed"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="20"
+                android:progress="10" />
+
+            <TextView
+                android:id="@+id/emb_tv_speed"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="1.0×"
+                android:textColor="#FFFFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Pitch -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="54dp"
+                android:layout_height="wrap_content"
+                android:text="Pitch"
+                android:textColor="#CCFFFFFF"
+                android:textSize="13sp" />
+
+            <SeekBar
+                android:id="@+id/emb_seek_pitch"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="20"
+                android:progress="10" />
+
+            <TextView
+                android:id="@+id/emb_tv_pitch"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="1.0×"
+                android:textColor="#FFFFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Default mode toggle -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:layout_marginTop="14dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Open books in Article View by default"
+                android:textColor="#CCFFFFFF"
+                android:textSize="13sp" />
+
+            <Switch
+                android:id="@+id/emb_switch_default"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+    </LinearLayout>
 
     <!-- ── TTS control bar ── -->
     <LinearLayout
@@ -26,68 +126,104 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:background="#CC1a1a1a"
-        android:paddingTop="8dip"
-        android:paddingBottom="8dip"
-        android:paddingStart="6dip"
-        android:paddingEnd="6dip">
+        android:orientation="vertical"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
 
-        <!-- ← Prev sentence -->
-        <ImageView
-            android:id="@+id/emb_btn_prev"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:background="@drawable/bg_clickable"
-            android:src="@drawable/glyphicons_173_rewind"
-            android:contentDescription="Previous sentence"
-            android:padding="4dp" />
-
-        <!-- ▶ / ‖ Play-pause -->
-        <ImageView
-            android:id="@+id/emb_btn_play_pause"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_clickable"
-            android:src="@drawable/my_glyphicons_smileys_100_headphones_play"
-            android:contentDescription="Play / Pause"
-            android:padding="2dp" />
-
-        <!-- → Next sentence -->
-        <ImageView
-            android:id="@+id/emb_btn_next"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_clickable"
-            android:src="@drawable/glyphicons_177_forward"
-            android:contentDescription="Next sentence"
-            android:padding="4dp" />
-
-        <!-- N / total progress counter — takes remaining horizontal space -->
+        <!-- Progress label -->
         <TextView
             android:id="@+id/emb_tv_progress"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:textColor="#FFFFFFFF"
-            android:textSize="13sp"
             android:gravity="center"
+            android:paddingBottom="2dp"
             android:singleLine="true"
-            android:text="—" />
+            android:text="—"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp" />
 
-        <!-- ✕ Close / back to reader -->
-        <ImageView
-            android:id="@+id/emb_btn_close"
-            android:layout_width="@dimen/wh_tts_button"
-            android:layout_height="@dimen/wh_tts_button"
-            android:background="@drawable/bg_clickable"
-            android:src="@drawable/glyphicons_599_menu_close"
-            android:contentDescription="Close"
-            android:padding="8dp" />
+        <!-- Controls row — weightSum=2 keeps play button exactly centred -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <!-- LEFT group (weight=1, gravity=end): packs toward play button -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end|center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/emb_btn_settings"
+                    android:layout_width="@dimen/wh_tts_button"
+                    android:layout_height="@dimen/wh_tts_button"
+                    android:background="@drawable/bg_clickable"
+                    android:contentDescription="Settings"
+                    android:padding="5dp"
+                    android:src="@drawable/glyphicons_137_cogwheel" />
+
+                <ImageView
+                    android:id="@+id/emb_btn_prev"
+                    android:layout_width="@dimen/wh_tts_button"
+                    android:layout_height="@dimen/wh_tts_button"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/bg_clickable"
+                    android:contentDescription="Previous sentence"
+                    android:padding="4dp"
+                    android:src="@drawable/glyphicons_173_rewind" />
+
+            </LinearLayout>
+
+            <!-- CENTRE: play/pause -->
+            <ImageView
+                android:id="@+id/emb_btn_play_pause"
+                android:layout_width="@dimen/wh_tts_button"
+                android:layout_height="@dimen/wh_tts_button"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="0"
+                android:background="@drawable/bg_clickable"
+                android:contentDescription="Play / Pause"
+                android:padding="2dp"
+                android:src="@drawable/my_glyphicons_smileys_100_headphones_play" />
+
+            <!-- RIGHT group (weight=1, gravity=start): packs toward play button -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="start|center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/emb_btn_next"
+                    android:layout_width="@dimen/wh_tts_button"
+                    android:layout_height="@dimen/wh_tts_button"
+                    android:layout_marginEnd="4dp"
+                    android:background="@drawable/bg_clickable"
+                    android:contentDescription="Next sentence"
+                    android:padding="4dp"
+                    android:src="@drawable/glyphicons_177_forward" />
+
+                <ImageView
+                    android:id="@+id/emb_btn_close"
+                    android:layout_width="@dimen/wh_tts_button"
+                    android:layout_height="@dimen/wh_tts_button"
+                    android:background="@drawable/bg_clickable"
+                    android:contentDescription="Close"
+                    android:padding="8dp"
+                    android:src="@drawable/glyphicons_599_menu_close" />
+
+            </LinearLayout>
+
+        </LinearLayout>
 
     </LinearLayout>
 
