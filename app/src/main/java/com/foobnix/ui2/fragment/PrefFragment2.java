@@ -1090,7 +1090,8 @@ public class PrefFragment2 extends UIFragment {
                 of(AppState.get().nameHorizontalMode, AppState.READING_MODE_BOOK),//
                 of(AppState.get().nameMusicianMode, AppState.READING_MODE_MUSICIAN),//
                 of(getString(R.string.tag_manager), AppState.READING_MODE_TAG_MANAGER),//
-                of(getString(R.string.open_with), AppState.READING_MODE_OPEN_WITH)//
+                of(getString(R.string.open_with), AppState.READING_MODE_OPEN_WITH),//
+                of("📄 Article View", AppState.READING_MODE_EMB)//
                               );
 
         inflate.findViewById(R.id.moreModeSettings)

@@ -68,6 +68,7 @@ import com.foobnix.pdf.info.widget.PrefDialogs;
 import com.foobnix.pdf.info.wrapper.DocumentController;
 import com.foobnix.pdf.search.activity.HorizontalModeController;
 import com.foobnix.pdf.search.activity.HorizontalViewActivity;
+import com.foobnix.pdf.search.activity.EMBReaderActivity;
 import com.foobnix.pdf.search.view.ProgressTask;
 import com.foobnix.sys.TempHolder;
 import com.foobnix.ui2.AppDB;
@@ -925,6 +926,21 @@ public class ExtUtils {
             }
         });
 
+        // Article View (EMBReaderActivity)
+        final TextView articleView = (TextView) view.findViewById(R.id.article_view);
+        if (articleView != null) {
+            articleView.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    dialog.dismiss();
+                    AppSP.get().readingMode = AppState.READING_MODE_EMB;
+                    EMBReaderActivity.launch(c, file.getAbsolutePath(), 0, 0,
+                            AppSP.get().lastBookWidth > 0 ? AppSP.get().lastBookWidth : 1080,
+                            AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
+                            AppSP.get().lastFontSize > 0 ? AppSP.get().lastFontSize : 18);
+                }
+            });
+        }
+
         if (Dips.isEInk()) {
             view.findViewById(R.id.music).setVisibility(View.GONE);
         }
@@ -969,6 +985,16 @@ public class ExtUtils {
 
         if (AppSP.get().readingMode == AppState.READING_MODE_BOOK) {
             openHorizontalView(c, uri, percent, playlist);
+            return;
+        }
+
+        // Article View — launch EMBReaderActivity directly
+        if (AppSP.get().readingMode == AppState.READING_MODE_EMB) {
+            String path = uri.getPath();
+            EMBReaderActivity.launch(c, path, 0, AppSP.get().lastBookParagraph,
+                    AppSP.get().lastBookWidth > 0 ? AppSP.get().lastBookWidth : 1080,
+                    AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
+                    AppSP.get().lastFontSize > 0 ? AppSP.get().lastFontSize : 18);
             return;
         }
 

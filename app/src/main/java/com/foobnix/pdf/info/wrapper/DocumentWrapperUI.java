@@ -67,7 +67,6 @@ import com.foobnix.pdf.info.view.UnderlineImageView;
 import com.foobnix.pdf.info.widget.DraggbleTouchListener;
 import com.foobnix.pdf.info.widget.ShareDialog;
 import com.foobnix.pdf.search.activity.ViewBinder;
-import com.foobnix.pdf.search.activity.EMBReaderActivity;
 import com.foobnix.pdf.search.activity.PageImageState;
 import com.foobnix.pdf.search.activity.msg.InvalidateMessage;
 import com.foobnix.pdf.search.activity.msg.MessagePageXY;
@@ -2272,14 +2271,6 @@ public class DocumentWrapperUI {
     public void onResume() {
         LOG.d("DocumentWrapperUI", "onResume");
         handlerTimer.post(updateTimePower);
-
-        // EMB default mode: if the user has enabled "Open books in Article View by default",
-        // and EMBReaderActivity is not already in the foreground (guards against an infinite
-        // launch loop when the user presses Back to return to this view), launch it now.
-        if (AppSP.get().embModeDefault && !EMBReaderActivity.isActive && dc != null) {
-            EMBReaderActivity.launch(dc);
-            return;
-        }
 
         if (dc != null) {
             dc.goToPageByTTS();

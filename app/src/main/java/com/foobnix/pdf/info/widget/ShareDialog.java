@@ -54,6 +54,7 @@ import com.foobnix.ui2.AppDB;
 import com.foobnix.ui2.FileMetaCore;
 import com.foobnix.ui2.MainTabs2;
 import com.foobnix.ui2.adapter.TabsAdapter2;
+import com.foobnix.pdf.search.activity.EMBReaderActivity;
 
 import org.ebookdroid.BookType;
 import org.ebookdroid.common.settings.books.SharedBooks;
@@ -277,6 +278,9 @@ public class ShareDialog {
             if (dc.isMusicianMode() == false) {
                 items.add("Ⓜ "+AppState.get().nameMusicianMode);
             }
+
+            // Always offer Article View from inside a book
+            items.add("📄 Article View");
         }
 
         if (isPDF) {
@@ -428,6 +432,10 @@ public class ShareDialog {
                                                                                  DocumentController.EXTRA_PLAYLIST));
                         }
                     });
+                }
+                // Article View
+                if (dc != null && which == i++) {
+                    EMBReaderActivity.launch(dc);
                 }
                 if (isPDF && which == i++) {
                     ExtUtils.openPDFInTextReflow(a, file, page + 1, dc);
