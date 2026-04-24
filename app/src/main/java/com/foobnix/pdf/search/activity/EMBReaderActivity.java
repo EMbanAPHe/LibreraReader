@@ -102,9 +102,6 @@ public class EMBReaderActivity extends Activity {
     private ImageView btnClose;
     private TextView  tvProgress;
 
-    /** Hidden anchor used to show DragingDialogs popups from this Activity. */
-    private FrameLayout dialogAnchor;
-
     // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
@@ -189,11 +186,6 @@ public class EMBReaderActivity extends Activity {
         btnClose     = findViewById(R.id.emb_btn_close);
         tvProgress   = findViewById(R.id.emb_tv_progress);
 
-        // Hidden anchor for DragingDialogs popups — must be attached to a window
-        dialogAnchor = new FrameLayout(this);
-        ((ViewGroup) findViewById(android.R.id.content)).addView(dialogAnchor,
-                new ViewGroup.LayoutParams(1, 1));
-
         applyTint();
         setupWebView();
         setupControls();
@@ -222,7 +214,13 @@ public class EMBReaderActivity extends Activity {
         isDestroyed = true;
         isActive    = false;
         if (synthesisQueue != null) synthesisQueue.stop();
-        if (webView != null) { webView.stopLoading(); webView.destroy(); }
+        if (webView != null) {
+            // Must remove from parent before destroy() to avoid the
+            // "WebView.destroy() called while WebView is still attached" warning
+            ViewGroup parent = (ViewGroup) webView.getParent();
+            if (parent != null) parent.removeView(webView);
+            webView.destroy();
+        }
         super.onDestroy();
     }
 
@@ -317,17 +315,15 @@ public class EMBReaderActivity extends Activity {
     private void openSettings() {
         DocumentController dc = lastDC;
         if (dc != null) {
-            // Full TTS settings dialog with all existing options
-            DragingDialogs.dialogTextToSpeech(dialogAnchor, dc, "");
+            // Use the window's decor view as the popup anchor.
+            // DecorView is always a FrameLayout and is always attached to the window,
+            // which is what DragingDialogs/DragingPopup requires.
+            FrameLayout anchor = (FrameLayout) getWindow().getDecorView();
+            DragingDialogs.dialogTextToSpeech(anchor, dc, "");
         } else {
-            // Fallback when launched from library (no dc): open system TTS settings
-            try {
-                Intent i = new Intent("com.android.settings.TTS_SETTINGS");
-                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(i);
-            } catch (Exception e) {
-                Toast.makeText(this, "TTS settings unavailable", Toast.LENGTH_SHORT).show();
-            }
+            // No dc available (should not happen with the onResume redirect approach,
+            // but fallback just in case).
+            Toast.makeText(this, "Open a book first to access TTS settings", Toast.LENGTH_SHORT).show();
         }
     }
 

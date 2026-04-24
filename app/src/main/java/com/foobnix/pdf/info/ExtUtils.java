@@ -926,17 +926,16 @@ public class ExtUtils {
             }
         });
 
-        // Article View (EMBReaderActivity)
+        // Article View — set the mode and open via the normal reader path.
+        // DocumentWrapperUI.onResume will redirect to EMBReaderActivity once
+        // the book is loaded and the cached path is available via dc.
         final TextView articleView = (TextView) view.findViewById(R.id.article_view);
         if (articleView != null) {
             articleView.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     dialog.dismiss();
                     AppSP.get().readingMode = AppState.READING_MODE_EMB;
-                    EMBReaderActivity.launch(c, file.getAbsolutePath(), 0, 0,
-                            AppSP.get().lastBookWidth > 0 ? AppSP.get().lastBookWidth : 1080,
-                            AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
-                            AppSP.get().lastFontSize > 0 ? AppSP.get().lastFontSize : 18);
+                    showDocumentWithoutDialog(c, file, null);
                 }
             });
         }
@@ -985,16 +984,6 @@ public class ExtUtils {
 
         if (AppSP.get().readingMode == AppState.READING_MODE_BOOK) {
             openHorizontalView(c, uri, percent, playlist);
-            return;
-        }
-
-        // Article View — launch EMBReaderActivity directly
-        if (AppSP.get().readingMode == AppState.READING_MODE_EMB) {
-            String path = uri.getPath();
-            EMBReaderActivity.launch(c, path, 0, AppSP.get().lastBookParagraph,
-                    AppSP.get().lastBookWidth > 0 ? AppSP.get().lastBookWidth : 1080,
-                    AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
-                    AppSP.get().lastFontSize > 0 ? AppSP.get().lastFontSize : 18);
             return;
         }
 
