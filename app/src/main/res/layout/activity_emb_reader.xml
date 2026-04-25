@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     EMBReaderActivity layout.
-    weightSum=2 on the controls row keeps play/pause exactly centred (same trick as tts_mp3_line.xml).
-    The settings panel slides in above the control bar when ⚙ is tapped.
+    fitsSystemWindows="true" on the root ensures the status bar and navigation bar
+    are never obscured by content.
+    emb_dialog_anchor is a 0dp FrameLayout whose parent is the RelativeLayout (a View),
+    satisfying DragingPopup's requirement that anchor.getParent() be a View.
 -->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
 
-    <!-- ── Chapter article WebView ── -->
+    <!-- Chapter article WebView -->
     <WebView
         android:id="@+id/emb_webview"
         android:layout_width="match_parent"
@@ -17,110 +20,7 @@
         android:overScrollMode="ifContentScrolls"
         android:scrollbars="vertical" />
 
-    <!-- ── Settings panel (GONE until ⚙ is tapped) ── -->
-    <LinearLayout
-        android:id="@+id/emb_settings_panel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_above="@+id/emb_tts_bar"
-        android:background="#EE1a1a1a"
-        android:orientation="vertical"
-        android:paddingLeft="16dp"
-        android:paddingRight="16dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp"
-        android:visibility="gone">
-
-        <!-- Speed -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="54dp"
-                android:layout_height="wrap_content"
-                android:text="Speed"
-                android:textColor="#CCFFFFFF"
-                android:textSize="13sp" />
-
-            <SeekBar
-                android:id="@+id/emb_seek_speed"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="20"
-                android:progress="10" />
-
-            <TextView
-                android:id="@+id/emb_tv_speed"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:gravity="end"
-                android:text="1.0×"
-                android:textColor="#FFFFFFFF"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-        <!-- Pitch -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="54dp"
-                android:layout_height="wrap_content"
-                android:text="Pitch"
-                android:textColor="#CCFFFFFF"
-                android:textSize="13sp" />
-
-            <SeekBar
-                android:id="@+id/emb_seek_pitch"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="20"
-                android:progress="10" />
-
-            <TextView
-                android:id="@+id/emb_tv_pitch"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:gravity="end"
-                android:text="1.0×"
-                android:textColor="#FFFFFFFF"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-        <!-- Default mode toggle -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:layout_marginTop="14dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Open books in Article View by default"
-                android:textColor="#CCFFFFFF"
-                android:textSize="13sp" />
-
-            <Switch
-                android:id="@+id/emb_switch_default"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
-
-    </LinearLayout>
-
-    <!-- ── TTS control bar ── -->
+    <!-- TTS control bar pinned to bottom -->
     <LinearLayout
         android:id="@+id/emb_tts_bar"
         android:layout_width="match_parent"
@@ -131,7 +31,7 @@
         android:paddingTop="6dp"
         android:paddingBottom="6dp">
 
-        <!-- Progress label -->
+        <!-- Sentence progress -->
         <TextView
             android:id="@+id/emb_tv_progress"
             android:layout_width="match_parent"
@@ -143,7 +43,7 @@
             android:textColor="#99FFFFFF"
             android:textSize="11sp" />
 
-        <!-- Controls row — weightSum=2 keeps play button exactly centred -->
+        <!-- Controls: weightSum=2 keeps play/pause centred -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -151,7 +51,7 @@
             android:orientation="horizontal"
             android:weightSum="2">
 
-            <!-- LEFT group (weight=1, gravity=end): packs toward play button -->
+            <!-- LEFT: settings + prev, gravity=end -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -192,9 +92,9 @@
                 android:background="@drawable/bg_clickable"
                 android:contentDescription="Play / Pause"
                 android:padding="2dp"
-                android:src="@drawable/my_glyphicons_smileys_100_headphones_play" />
+                android:src="@drawable/glyphicons_175_play" />
 
-            <!-- RIGHT group (weight=1, gravity=start): packs toward play button -->
+            <!-- RIGHT: next + close, gravity=start -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -226,5 +126,19 @@
         </LinearLayout>
 
     </LinearLayout>
+
+    <!--
+        Invisible DragingPopup anchor.
+        Its parent is the root RelativeLayout (a View), satisfying
+        DragingPopup's cast: ((View) anchor.getParent()).getWidth()
+    -->
+    <FrameLayout
+        android:id="@+id/emb_dialog_anchor"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="60dp"
+        android:visibility="invisible" />
 
 </RelativeLayout>

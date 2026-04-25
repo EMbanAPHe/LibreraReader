@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -41,35 +43,40 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * EMBReaderActivity — chapter-as-article TTS reading view.
+ * EMBReaderActivity v7 — chapter-as-article TTS reading view.
  *
- * PLAYBACK: SynthesisQueue uses speak()+QUEUE_ADD. No WAV files.
- * Sherpa-onnx receives all upcoming sentences via the TTS queue and pre-synthesises
- * them internally — the queue keeps PREFETCH_AHEAD sentences ahead of playback.
+ * ARCHITECTURE
+ * ------------
+ * Launched directly from ExtUtils.showDocumentInner (no VerticalViewActivity intermediary).
+ * Opens the epub/book file itself using ImageExtractor.singleCodecContext.
+ * lastDC holds the DocumentController from in-book launches for settings access.
  *
- * SETTINGS: The ⚙ button opens the existing DragingDialogs.dialogTextToSpeech()
- * popup using a hidden anchor FrameLayout rooted in this Activity's window.
- * All existing TTS settings (speed, pitch, engine, voice, timer, etc.) work as-is.
+ * FIXES vs v6
+ * -----------
+ * 1. INFINITE LOOP: VerticalViewActivity intermediary removed. EMB now launches directly
+ *    from ExtUtils. No onResume redirect means no ping-pong loop.
  *
- * NO AUTO-PLAY: The chapter loads and highlights sentence 0, but playback only
- * starts when the user taps ▶.
+ * 2. SETTINGS CRASH (ViewRootImpl cast): DragingPopup needs anchor.getParent() to be a View.
+ *    The layout now contains emb_dialog_anchor (a FrameLayout inside the root RelativeLayout).
+ *    Its parent IS the RelativeLayout (a View). Cast succeeds.
  *
- * MODE INTEGRATION:
- *   - Accessible from the reading mode dialog (choose_mode_dialog.xml) on book open
- *   - Listed as "Article View" in Preferences > Single tap (PrefFragment2)
- *   - Listed in the in-book ⋮ ShareDialog menu
- *   - READING_MODE_EMB = 7 stored in AppSP.readingMode like all other modes
+ * 3. CANNOT CLOSE: finish() now also resets readingMode to READING_MODE_SCROLL so that
+ *    if the back-stack returns to VerticalViewActivity it doesn't re-launch EMB.
+ *
+ * 4. TEXT TOO HIGH: fitsSystemWindows="true" on the root layout handles status/nav bar insets.
+ *
+ * 5. NO AUTO-PLAY: Chapter loads and highlights the resume position but does NOT start TTS.
+ *    User must tap ▶ to begin.
+ *
+ * 6. DOUBLE-TAP TO PLAY: Single tap → highlight sentence only. Double-tap → highlight AND
+ *    start playing from that sentence. Implemented via GestureDetector on the WebView.
  */
 @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
 public class EMBReaderActivity extends Activity {
 
-    // -------------------------------------------------------------------------
-    // Intent extras
-    // -------------------------------------------------------------------------
-
     public static final String EXTRA_PATH   = "emb_path";
-    public static final String EXTRA_PAGE   = "emb_page";   // 0-indexed
-    public static final String EXTRA_PARAG  = "emb_parag";  // sentence to resume from
+    public static final String EXTRA_PAGE   = "emb_page";
+    public static final String EXTRA_PARAG  = "emb_parag";
     public static final String EXTRA_WIDTH  = "emb_width";
     public static final String EXTRA_HEIGHT = "emb_height";
     public static final String EXTRA_FONT   = "emb_font";
@@ -77,30 +84,29 @@ public class EMBReaderActivity extends Activity {
     private static final String TAG = "EMBReaderActivity";
 
     /**
-     * Static reference to the last DocumentController used to launch us.
-     * Used to open the TTS settings popup. Set in launch(DocumentController).
-     * May be null when launched from the library / mode dialog.
-     */
-    public static volatile DocumentController lastDC = null;
-
-    /**
-     * True while EMBReaderActivity is in the foreground.
-     * Not needed for auto-launch anymore (replaced by READING_MODE_EMB), but
-     * kept as a safety flag.
+     * Set to true from onResume, false from onDestroy.
+     * Kept only for external code that checks it (e.g. TTSControlsView launch guard).
      */
     public static volatile boolean isActive = false;
+
+    /**
+     * Last DocumentController from an in-book launch. Used for settings popup.
+     * Null when launched from the library.
+     */
+    public static volatile DocumentController lastDC = null;
 
     // -------------------------------------------------------------------------
     // Views
     // -------------------------------------------------------------------------
 
-    private WebView   webView;
-    private ImageView btnSettings;
-    private ImageView btnPrev;
-    private ImageView btnPlayPause;
-    private ImageView btnNext;
-    private ImageView btnClose;
-    private TextView  tvProgress;
+    private WebView     webView;
+    private FrameLayout dialogAnchor;
+    private ImageView   btnSettings;
+    private ImageView   btnPrev;
+    private ImageView   btnPlayPause;
+    private ImageView   btnNext;
+    private ImageView   btnClose;
+    private TextView    tvProgress;
 
     // -------------------------------------------------------------------------
     // State
@@ -108,6 +114,7 @@ public class EMBReaderActivity extends Activity {
 
     private EMBChapterExtractor.ChapterContent chapter;
     private SynthesisQueue synthesisQueue;
+    private GestureDetector gestureDetector;
 
     private volatile int     currentSentenceIdx = 0;
     private volatile boolean isPlaying          = false;
@@ -117,56 +124,49 @@ public class EMBReaderActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // -------------------------------------------------------------------------
-    // Launch helpers
+    // Launch
     // -------------------------------------------------------------------------
 
-    /** Launch from a DocumentController (in-book button / ShareDialog). */
+    /** Launch from DocumentController (in-book button / ShareDialog). */
     public static void launch(DocumentController dc) {
         Context ctx = dc.getActivity();
         if (ctx == null) return;
-
         lastDC = dc;
-
-        // Stop TTSService to prevent audio overlap
-        try {
-            ctx.startService(new Intent(TTSNotification.TTS_STOP_DESTROY,
-                    null, ctx, TTSService.class));
-        } catch (Exception ignored) {}
+        stopTTS(ctx);
 
         int page  = dc.getCurentPageFirst1() - 1;
         int parag = AppSP.get().lastBookParagraph;
 
-        Intent intent = new Intent(ctx, EMBReaderActivity.class);
-        intent.putExtra(EXTRA_PATH,   dc.getCurrentBook().getPath());
-        intent.putExtra(EXTRA_PAGE,   page);
-        intent.putExtra(EXTRA_PARAG,  parag);
-        intent.putExtra(EXTRA_WIDTH,  dc.getBookWidth());
-        intent.putExtra(EXTRA_HEIGHT, dc.getBookHeight());
-        intent.putExtra(EXTRA_FONT,   BookCSS.get().fontSizeSp);
-        ctx.startActivity(intent);
+        Intent i = new Intent(ctx, EMBReaderActivity.class);
+        i.putExtra(EXTRA_PATH,   dc.getCurrentBook().getPath());
+        i.putExtra(EXTRA_PAGE,   page);
+        i.putExtra(EXTRA_PARAG,  parag);
+        i.putExtra(EXTRA_WIDTH,  dc.getBookWidth());
+        i.putExtra(EXTRA_HEIGHT, dc.getBookHeight());
+        i.putExtra(EXTRA_FONT,   BookCSS.get().fontSizeSp);
+        ctx.startActivity(i);
     }
 
-    /**
-     * Launch with explicit parameters — used by ExtUtils.showDocumentInner()
-     * when READING_MODE_EMB is selected (library / mode dialog).
-     * No DocumentController is available in that path, so lastDC may be null.
-     */
+    /** Launch from library / mode dialog / ExtUtils — no DocumentController. */
     public static void launch(Context ctx, String path, int page, int parag,
                               int width, int height, int font) {
+        stopTTS(ctx);
+        Intent i = new Intent(ctx, EMBReaderActivity.class);
+        i.putExtra(EXTRA_PATH,   path);
+        i.putExtra(EXTRA_PAGE,   page);
+        i.putExtra(EXTRA_PARAG,  parag);
+        i.putExtra(EXTRA_WIDTH,  width);
+        i.putExtra(EXTRA_HEIGHT, height);
+        i.putExtra(EXTRA_FONT,   font);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(i);
+    }
+
+    private static void stopTTS(Context ctx) {
         try {
             ctx.startService(new Intent(TTSNotification.TTS_STOP_DESTROY,
                     null, ctx, TTSService.class));
         } catch (Exception ignored) {}
-
-        Intent intent = new Intent(ctx, EMBReaderActivity.class);
-        intent.putExtra(EXTRA_PATH,   path);
-        intent.putExtra(EXTRA_PAGE,   page);
-        intent.putExtra(EXTRA_PARAG,  parag);
-        intent.putExtra(EXTRA_WIDTH,  width);
-        intent.putExtra(EXTRA_HEIGHT, height);
-        intent.putExtra(EXTRA_FONT,   font);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(intent);
     }
 
     // -------------------------------------------------------------------------
@@ -179,6 +179,7 @@ public class EMBReaderActivity extends Activity {
         setContentView(R.layout.activity_emb_reader);
 
         webView      = findViewById(R.id.emb_webview);
+        dialogAnchor = findViewById(R.id.emb_dialog_anchor);
         btnSettings  = findViewById(R.id.emb_btn_settings);
         btnPrev      = findViewById(R.id.emb_btn_prev);
         btnPlayPause = findViewById(R.id.emb_btn_play_pause);
@@ -192,11 +193,7 @@ public class EMBReaderActivity extends Activity {
         loadChapterAsync();
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        isActive = true;
-    }
+    @Override protected void onResume() { super.onResume(); isActive = true; }
 
     @Override
     protected void onPause() {
@@ -215,13 +212,27 @@ public class EMBReaderActivity extends Activity {
         isActive    = false;
         if (synthesisQueue != null) synthesisQueue.stop();
         if (webView != null) {
-            // Must remove from parent before destroy() to avoid the
-            // "WebView.destroy() called while WebView is still attached" warning
-            ViewGroup parent = (ViewGroup) webView.getParent();
-            if (parent != null) parent.removeView(webView);
+            ViewGroup p = (ViewGroup) webView.getParent();
+            if (p != null) p.removeView(webView);
             webView.destroy();
         }
         super.onDestroy();
+    }
+
+    /**
+     * Override back button: reset readingMode so VerticalViewActivity doesn't
+     * re-trigger an EMB launch when it resumes.
+     */
+    @Override
+    public void onBackPressed() {
+        finishEMB();
+    }
+
+    /** Finish this activity and reset readingMode to avoid re-launch loops. */
+    private void finishEMB() {
+        AppSP.get().readingMode = AppState.READING_MODE_SCROLL;
+        AppSP.get().save();
+        finish();
     }
 
     // -------------------------------------------------------------------------
@@ -238,7 +249,7 @@ public class EMBReaderActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // WebView
+    // WebView — single tap = highlight, double tap = play from here
     // -------------------------------------------------------------------------
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -253,28 +264,67 @@ public class EMBReaderActivity extends Activity {
 
         webView.addJavascriptInterface(new JsBridge(), "EMB");
 
+        // GestureDetector for single vs double tap on the WebView
+        gestureDetector = new GestureDetector(this,
+                new GestureDetector.SimpleOnGestureListener() {
+
+            @Override
+            public boolean onSingleTapConfirmed(MotionEvent e) {
+                // JS getSentenceAt fires via click listener injected after page load
+                return false; // let the click propagate to WebView's JS handler
+            }
+
+            @Override
+            public boolean onDoubleTap(MotionEvent e) {
+                // Double tap: JS returns the sentence index, then we play from there
+                final float x = e.getX(), y = e.getY();
+                webView.evaluateJavascript(
+                    "getSentenceAt(" + x + "," + y + ")",
+                    value -> {
+                        try {
+                            int idx = Integer.parseInt(value.trim());
+                            if (idx >= 0) {
+                                mainHandler.post(() -> {
+                                    if (!isDestroyed) seekAndPlay(idx);
+                                });
+                            }
+                        } catch (NumberFormatException ignored) {}
+                    });
+                return true;
+            }
+        });
+
+        webView.setOnTouchListener((v, event) -> {
+            gestureDetector.onTouchEvent(event);
+            return false; // still let WebView handle scrolling/clicks
+        });
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (isDestroyed || pageLoaded) return;
                 pageLoaded = true;
 
-                // Inject tap-to-seek click listener
+                // Single-tap listener: highlights sentence, does NOT start playback
                 webView.evaluateJavascript(
                     "(function(){" +
                     "document.addEventListener('click',function(e){" +
                     "var i=getSentenceAt(e.clientX,e.clientY);" +
-                    "if(i>=0){EMB.onTapped(i);}" +
+                    "if(i>=0){EMB.onSingleTap(i);}" +
                     "});" +
                     "})();", null);
 
-                // Show the resume position highlight — but don't start playing
+                // Restore saved position — highlight only, no play
                 int from = getIntent().getIntExtra(EXTRA_PARAG, 0);
+                // Re-read from AppSP in case it was updated since the intent was created
+                int saved = AppSP.get().lastBookParagraph;
+                if (saved > 0) from = saved;
                 if (chapter != null && !chapter.sentences.isEmpty()) {
                     from = Math.max(0, Math.min(from, chapter.sentences.size() - 1));
                 }
                 currentSentenceIdx = from;
                 updateProgress(from);
+
                 final int f = from;
                 mainHandler.postDelayed(() -> {
                     if (!isDestroyed) {
@@ -290,41 +340,42 @@ public class EMBReaderActivity extends Activity {
     // -------------------------------------------------------------------------
 
     private void setupControls() {
-        btnPrev.setOnClickListener(v ->
-            seekTo(Math.max(0, currentSentenceIdx - 1)));
+        btnPrev.setOnClickListener(v -> {
+            int t = Math.max(0, currentSentenceIdx - 1);
+            if (isPlaying) seekAndPlay(t);
+            else           justHighlight(t);
+        });
 
         btnNext.setOnClickListener(v -> {
             if (chapter == null) return;
-            seekTo(Math.min(chapter.sentences.size() - 1, currentSentenceIdx + 1));
+            int t = Math.min(chapter.sentences.size() - 1, currentSentenceIdx + 1);
+            if (isPlaying) seekAndPlay(t);
+            else           justHighlight(t);
         });
 
         btnPlayPause.setOnClickListener(v -> {
             if (isPlaying) pausePlayback();
-            else           startOrResumePlayback();
+            else           startOrResume();
         });
 
-        btnClose.setOnClickListener(v -> finish());
+        btnClose.setOnClickListener(v -> finishEMB());
 
         btnSettings.setOnClickListener(v -> openSettings());
     }
 
     // -------------------------------------------------------------------------
-    // Settings popup — uses the existing DragingDialogs TTS dialog
+    // Settings — uses DragingDialogs.dialogTextToSpeech with the layout anchor
     // -------------------------------------------------------------------------
 
     private void openSettings() {
         DocumentController dc = lastDC;
-        if (dc != null) {
-            // Use the window's decor view as the popup anchor.
-            // DecorView is always a FrameLayout and is always attached to the window,
-            // which is what DragingDialogs/DragingPopup requires.
-            FrameLayout anchor = (FrameLayout) getWindow().getDecorView();
-            DragingDialogs.dialogTextToSpeech(anchor, dc, "");
-        } else {
-            // No dc available (should not happen with the onResume redirect approach,
-            // but fallback just in case).
-            Toast.makeText(this, "Open a book first to access TTS settings", Toast.LENGTH_SHORT).show();
+        if (dc == null) {
+            Toast.makeText(this, "Open a book first to access full TTS settings",
+                    Toast.LENGTH_SHORT).show();
+            return;
         }
+        // dialogAnchor's parent is the root RelativeLayout (a View) ✓
+        DragingDialogs.dialogTextToSpeech(dialogAnchor, dc, "");
     }
 
     // -------------------------------------------------------------------------
@@ -350,7 +401,7 @@ public class EMBReaderActivity extends Activity {
             CodecDocument dc = null;
             try {
                 dc = ImageExtractor.singleCodecContext(path, "");
-                if (dc == null) { postError("Cannot open book"); return; }
+                if (dc == null) { postError("Cannot open: " + path); return; }
                 dc.getPageCount(width, height, font);
 
                 List<OutlineLinkWrapper> outline = convertOutline(dc.getOutline());
@@ -362,7 +413,7 @@ public class EMBReaderActivity extends Activity {
 
                 mainHandler.post(() -> {
                     if (isDestroyed) return;
-                    updateProgress(0);
+                    tvProgress.setText("0 / " + result.sentences.size());
                     webView.loadDataWithBaseURL(
                         "file:///android_asset/",
                         result.html, "text/html", "utf-8", null);
@@ -370,7 +421,7 @@ public class EMBReaderActivity extends Activity {
 
             } catch (Exception e) {
                 LOG.e(e);
-                postError("Error loading chapter: " + e.getMessage());
+                postError("Error: " + e.getMessage());
             } finally {
                 if (dc != null) try { dc.recycle(); } catch (Exception ignored) {}
             }
@@ -381,36 +432,36 @@ public class EMBReaderActivity extends Activity {
         try {
             int bg   = MagicHelper.getBgColor();
             int text = MagicHelper.getTextColor();
-            boolean isDark = !AppState.get().isDayNotInvert;
-            int highlight  = isDark
+            boolean dark = !AppState.get().isDayNotInvert;
+            int hl = dark
                 ? android.graphics.Color.parseColor("#5c4a00")
                 : android.graphics.Color.parseColor("#ffe082");
-            float fontSize = BookCSS.get().fontSizeSp;
-            String font    = buildFontFaceCSS(BookCSS.get().normalFont);
-            return new EMBChapterExtractor.ThemeParams(bg, text, highlight, fontSize, font);
+            return new EMBChapterExtractor.ThemeParams(
+                bg, text, hl, BookCSS.get().fontSizeSp,
+                buildFontCSS(BookCSS.get().normalFont));
         } catch (Exception e) {
             LOG.e(e);
             return EMBChapterExtractor.ThemeParams.light();
         }
     }
 
-    private String buildFontFaceCSS(String f) {
-        if (f == null || f.isEmpty() || f.contains("/") || f.contains(".ttf") || f.contains(".otf"))
+    private String buildFontCSS(String f) {
+        if (f == null || f.isEmpty() || f.contains("/") || f.endsWith(".ttf") || f.endsWith(".otf"))
             return "Georgia, 'Noto Serif', serif";
         return "'" + f + "', Georgia, serif";
     }
 
     private List<OutlineLinkWrapper> convertOutline(List<? extends OutlineLink> raw) {
-        List<OutlineLinkWrapper> result = new ArrayList<>();
-        if (raw == null) return result;
+        List<OutlineLinkWrapper> out = new ArrayList<>();
+        if (raw == null) return out;
         for (OutlineLink link : raw) {
             try {
                 OutlineLinkWrapper w = new OutlineLinkWrapper(
                     link.getTitle(), link.getLink(), link.getLevel(), link.linkUri);
-                if (w.targetPage > 0) result.add(w);
+                if (w.targetPage > 0) out.add(w);
             } catch (Exception ignored) {}
         }
-        return result;
+        return out;
     }
 
     private void postError(String msg) {
@@ -423,40 +474,18 @@ public class EMBReaderActivity extends Activity {
     // Playback
     // -------------------------------------------------------------------------
 
-    private void startOrResumePlayback() {
-        if (synthesisQueue != null && isPlaying) return;
-
+    private void startOrResume() {
         if (chapter == null || chapter.sentences.isEmpty()) {
-            Toast.makeText(this, "Chapter not loaded yet", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Chapter still loading…", Toast.LENGTH_SHORT).show();
             return;
         }
 
         if (synthesisQueue == null) {
-            // First play — create queue
-            synthesisQueue = new SynthesisQueue(new SynthesisQueue.Callback() {
-                @Override public void onSentenceStart(int idx, String text) {
-                    currentSentenceIdx = idx;
-                    isPlaying = true;
-                    mainHandler.post(() -> {
-                        if (isDestroyed) return;
-                        webView.evaluateJavascript("highlightSentence(" + idx + ")", null);
-                        updateProgress(idx);
-                        updatePlayIcon();
-                    });
-                }
-                @Override public void onFinished() {
-                    isPlaying = false;
-                    mainHandler.post(() -> { if (!isDestroyed) updatePlayIcon(); });
-                }
-                @Override public void onError(int idx, Exception e) {
-                    LOG.e(e, TAG, "error at sentence", idx);
-                }
-            });
+            createQueue();
             isPlaying = true;
             updatePlayIcon();
             synthesisQueue.start(chapter.sentences, currentSentenceIdx);
         } else {
-            // Resume from pause
             synthesisQueue.resume();
             isPlaying = true;
             updatePlayIcon();
@@ -469,20 +498,54 @@ public class EMBReaderActivity extends Activity {
         updatePlayIcon();
     }
 
-    private void seekTo(int idx) {
+    /** Highlight sentence without starting or changing playback state. */
+    private void justHighlight(int idx) {
+        if (chapter == null || idx < 0 || idx >= chapter.sentences.size()) return;
+        currentSentenceIdx = idx;
+        webView.evaluateJavascript("highlightSentence(" + idx + ")", null);
+        updateProgress(idx);
+    }
+
+    /** Move to sentence and immediately (re)start playback. */
+    private void seekAndPlay(int idx) {
         if (chapter == null || idx < 0 || idx >= chapter.sentences.size()) return;
         currentSentenceIdx = idx;
         webView.evaluateJavascript("highlightSentence(" + idx + ")", null);
         updateProgress(idx);
 
+        // Stop existing queue and start fresh from this index
         if (synthesisQueue != null) {
-            synthesisQueue.seekTo(idx);
-            if (isPlaying) {
-                // seekTo stops internally; restart
-                synthesisQueue = null;
-                startOrResumePlayback();
-            }
+            synthesisQueue.stop();
+            synthesisQueue = null;
         }
+        createQueue();
+        isPlaying = true;
+        updatePlayIcon();
+        synthesisQueue.start(chapter.sentences, idx);
+    }
+
+    private void createQueue() {
+        synthesisQueue = new SynthesisQueue(new SynthesisQueue.Callback() {
+            @Override public void onSentenceStart(int idx, String text) {
+                currentSentenceIdx = idx;
+                isPlaying = true;
+                mainHandler.post(() -> {
+                    if (isDestroyed) return;
+                    webView.evaluateJavascript("highlightSentence(" + idx + ")", null);
+                    updateProgress(idx);
+                    updatePlayIcon();
+                    AppSP.get().lastBookParagraph = idx;
+                    AppSP.get().save();
+                });
+            }
+            @Override public void onFinished() {
+                isPlaying = false;
+                mainHandler.post(() -> { if (!isDestroyed) updatePlayIcon(); });
+            }
+            @Override public void onError(int idx, Exception e) {
+                LOG.e(e, TAG, "sentence error at", idx);
+            }
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -502,13 +565,14 @@ public class EMBReaderActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // JS bridge — tap to seek
+    // JS bridge
     // -------------------------------------------------------------------------
 
     private class JsBridge {
+        /** Called from the single-tap JS listener — highlight only. */
         @JavascriptInterface
-        public void onTapped(final int sentIdx) {
-            mainHandler.post(() -> { if (!isDestroyed) seekTo(sentIdx); });
+        public void onSingleTap(final int idx) {
+            mainHandler.post(() -> { if (!isDestroyed) justHighlight(idx); });
         }
     }
 }

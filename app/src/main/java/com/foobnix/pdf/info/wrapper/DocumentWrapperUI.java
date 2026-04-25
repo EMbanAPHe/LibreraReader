@@ -67,7 +67,6 @@ import com.foobnix.pdf.info.view.UnderlineImageView;
 import com.foobnix.pdf.info.widget.DraggbleTouchListener;
 import com.foobnix.pdf.info.widget.ShareDialog;
 import com.foobnix.pdf.search.activity.ViewBinder;
-import com.foobnix.pdf.search.activity.EMBReaderActivity;
 import com.foobnix.pdf.search.activity.PageImageState;
 import com.foobnix.pdf.search.activity.msg.InvalidateMessage;
 import com.foobnix.pdf.search.activity.msg.MessagePageXY;
@@ -2272,16 +2271,6 @@ public class DocumentWrapperUI {
     public void onResume() {
         LOG.d("DocumentWrapperUI", "onResume");
         handlerTimer.post(updateTimePower);
-
-        // EMB Article View mode: the book has now been opened and cached by the normal
-        // reader pipeline. dc has the correct cached file path. Launch EMBReaderActivity.
-        // The isActive guard prevents re-launching when the user presses Back from EMB.
-        if (AppSP.get().readingMode == AppState.READING_MODE_EMB
-                && !EMBReaderActivity.isActive
-                && dc != null) {
-            EMBReaderActivity.launch(dc);
-            return;
-        }
 
         if (dc != null) {
             dc.goToPageByTTS();

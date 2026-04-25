@@ -926,16 +926,19 @@ public class ExtUtils {
             }
         });
 
-        // Article View — set the mode and open via the normal reader path.
-        // DocumentWrapperUI.onResume will redirect to EMBReaderActivity once
-        // the book is loaded and the cached path is available via dc.
+        // Article View — launch directly with the original file path.
         final TextView articleView = (TextView) view.findViewById(R.id.article_view);
         if (articleView != null) {
             articleView.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     dialog.dismiss();
                     AppSP.get().readingMode = AppState.READING_MODE_EMB;
-                    showDocumentWithoutDialog(c, file, null);
+                    EMBReaderActivity.launch(c, file.getAbsolutePath(),
+                            AppSP.get().lastBookPage,
+                            AppSP.get().lastBookParagraph,
+                            AppSP.get().lastBookWidth  > 0 ? AppSP.get().lastBookWidth  : 1080,
+                            AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
+                            AppSP.get().lastFontSize   > 0 ? AppSP.get().lastFontSize   : 18);
                 }
             });
         }
@@ -984,6 +987,17 @@ public class ExtUtils {
 
         if (AppSP.get().readingMode == AppState.READING_MODE_BOOK) {
             openHorizontalView(c, uri, percent, playlist);
+            return;
+        }
+
+        // Article View — launch directly. EMBReaderActivity opens the codec itself.
+        if (AppSP.get().readingMode == AppState.READING_MODE_EMB) {
+            EMBReaderActivity.launch(c, uri.getPath(),
+                    AppSP.get().lastBookPage,
+                    AppSP.get().lastBookParagraph,
+                    AppSP.get().lastBookWidth  > 0 ? AppSP.get().lastBookWidth  : 1080,
+                    AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
+                    AppSP.get().lastFontSize   > 0 ? AppSP.get().lastFontSize   : 18);
             return;
         }
 
