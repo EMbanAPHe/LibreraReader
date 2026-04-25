@@ -926,19 +926,15 @@ public class ExtUtils {
             }
         });
 
-        // Article View — launch directly with the original file path.
+        // Article View — set mode and open via VerticalViewActivity so the epub cache
+        // is built correctly. DocumentWrapperUI.onResume redirects to EMBReaderActivity.
         final TextView articleView = (TextView) view.findViewById(R.id.article_view);
         if (articleView != null) {
             articleView.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     dialog.dismiss();
                     AppSP.get().readingMode = AppState.READING_MODE_EMB;
-                    EMBReaderActivity.launch(c, file.getAbsolutePath(),
-                            AppSP.get().lastBookPage,
-                            AppSP.get().lastBookParagraph,
-                            AppSP.get().lastBookWidth  > 0 ? AppSP.get().lastBookWidth  : 1080,
-                            AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
-                            AppSP.get().lastFontSize   > 0 ? AppSP.get().lastFontSize   : 18);
+                    showDocumentWithoutDialog(c, file, null);
                 }
             });
         }
@@ -990,16 +986,9 @@ public class ExtUtils {
             return;
         }
 
-        // Article View — launch directly. EMBReaderActivity opens the codec itself.
-        if (AppSP.get().readingMode == AppState.READING_MODE_EMB) {
-            EMBReaderActivity.launch(c, uri.getPath(),
-                    AppSP.get().lastBookPage,
-                    AppSP.get().lastBookParagraph,
-                    AppSP.get().lastBookWidth  > 0 ? AppSP.get().lastBookWidth  : 1080,
-                    AppSP.get().lastBookHeight > 0 ? AppSP.get().lastBookHeight : 1920,
-                    AppSP.get().lastFontSize   > 0 ? AppSP.get().lastFontSize   : 18);
-            return;
-        }
+        // READING_MODE_EMB falls through to VerticalViewActivity below.
+        // VerticalViewActivity builds the epub cache; DocumentWrapperUI.onResume
+        // then redirects to EMBReaderActivity once the book is fully decoded.
 
         final Intent intent = new Intent(c, VerticalViewActivity.class);
         try {

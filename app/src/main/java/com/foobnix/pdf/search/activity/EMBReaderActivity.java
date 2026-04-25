@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.speech.tts.TextToSpeech;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -33,8 +34,7 @@ import com.foobnix.pdf.info.wrapper.MagicHelper;
 import com.foobnix.sys.ImageExtractor;
 import com.foobnix.tts.EMBChapterExtractor;
 import com.foobnix.tts.SynthesisQueue;
-import com.foobnix.tts.TTSNotification;
-import com.foobnix.tts.TTSService;
+import com.foobnix.tts.TTSEngine;
 
 import org.ebookdroid.core.codec.CodecDocument;
 import org.ebookdroid.core.codec.OutlineLink;
@@ -43,33 +43,39 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * EMBReaderActivity v7 — chapter-as-article TTS reading view.
+ * EMBReaderActivity v8 — chapter-as-article TTS reading view.
  *
  * ARCHITECTURE
  * ------------
- * Launched directly from ExtUtils.showDocumentInner (no VerticalViewActivity intermediary).
- * Opens the epub/book file itself using ImageExtractor.singleCodecContext.
- * lastDC holds the DocumentController from in-book launches for settings access.
+ * For library→EMB launches: VerticalViewActivity opens first (building the epub cache),
+ * then DocumentWrapperUI.onResume redirects here via launch(dc). This avoids the
+ * "PDF file not found" error that occurred when EMBReaderActivity tried to open an
+ * epub whose cache hadn't been built yet.
  *
- * FIXES vs v6
- * -----------
- * 1. INFINITE LOOP: VerticalViewActivity intermediary removed. EMB now launches directly
- *    from ExtUtils. No onResume redirect means no ping-pong loop.
+ * For in-book launches (TTSControlsView, ShareDialog): launch(dc) is called directly.
+ * The epub cache is already built since VerticalViewActivity had the book open.
  *
- * 2. SETTINGS CRASH (ViewRootImpl cast): DragingPopup needs anchor.getParent() to be a View.
- *    The layout now contains emb_dialog_anchor (a FrameLayout inside the root RelativeLayout).
- *    Its parent IS the RelativeLayout (a View). Cast succeeds.
+ * LOOP PREVENTION
+ * ---------------
+ * launchInFlight: set true in launch(dc), cleared in onResume() and onDestroy().
+ * isActive: set true in onResume(), false in onDestroy().
+ * DocumentWrapperUI.onResume checks both: !isActive && !launchInFlight before launching.
+ * finishEMB() (back button) sets readingMode=SCROLL so VerticalViewActivity.onResume
+ * doesn't trigger the redirect again.
  *
- * 3. CANNOT CLOSE: finish() now also resets readingMode to READING_MODE_SCROLL so that
- *    if the back-stack returns to VerticalViewActivity it doesn't re-launch EMB.
+ * TTS
+ * ---
+ * We do NOT send TTS_STOP_DESTROY. That would shut down the engine (ttsEngine=null),
+ * making SynthesisQueue unable to speak. Instead we call tts.stop() to stop playback
+ * while keeping the engine alive and initialized.
+ * SynthesisQueue uses speak(QUEUE_ADD) with PREFETCH_AHEAD sentences pre-queued
+ * for sherpa-onnx's pre-synthesis pipeline.
  *
- * 4. TEXT TOO HIGH: fitsSystemWindows="true" on the root layout handles status/nav bar insets.
- *
- * 5. NO AUTO-PLAY: Chapter loads and highlights the resume position but does NOT start TTS.
- *    User must tap ▶ to begin.
- *
- * 6. DOUBLE-TAP TO PLAY: Single tap → highlight sentence only. Double-tap → highlight AND
- *    start playing from that sentence. Implemented via GestureDetector on the WebView.
+ * SETTINGS
+ * --------
+ * emb_dialog_anchor is a FrameLayout inside the root RelativeLayout. Its parent is
+ * the RelativeLayout (a View), satisfying DragingPopup's cast on line 107:
+ * ((View) anchor.getParent()).getWidth().
  */
 @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
 public class EMBReaderActivity extends Activity {
@@ -83,15 +89,26 @@ public class EMBReaderActivity extends Activity {
 
     private static final String TAG = "EMBReaderActivity";
 
+    // -------------------------------------------------------------------------
+    // Static state shared with DocumentWrapperUI
+    // -------------------------------------------------------------------------
+
     /**
-     * Set to true from onResume, false from onDestroy.
-     * Kept only for external code that checks it (e.g. TTSControlsView launch guard).
+     * True while EMBReaderActivity is in the foreground.
+     * Set in onResume(), cleared in onDestroy().
      */
     public static volatile boolean isActive = false;
 
     /**
-     * Last DocumentController from an in-book launch. Used for settings popup.
-     * Null when launched from the library.
+     * True from the moment launch(dc) is called until onResume() fires.
+     * Prevents DocumentWrapperUI.onResume from launching a second instance
+     * during the Android activity transition window.
+     */
+    public static volatile boolean launchInFlight = false;
+
+    /**
+     * Last DocumentController used to launch. Used for TTS settings popup.
+     * Null when launched from library with no in-book dc context.
      */
     public static volatile DocumentController lastDC = null;
 
@@ -121,18 +138,36 @@ public class EMBReaderActivity extends Activity {
     private volatile boolean pageLoaded         = false;
     private volatile boolean isDestroyed        = false;
 
+    /** Set by finishEMB() so onDestroy knows not to reset readingMode twice. */
+    private boolean userExited = false;
+
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // -------------------------------------------------------------------------
-    // Launch
+    // Launch — always from a DocumentController
     // -------------------------------------------------------------------------
 
-    /** Launch from DocumentController (in-book button / ShareDialog). */
+    /**
+     * Launch from DocumentController. Works for both:
+     * - In-book launches (TTSControlsView, ShareDialog): dc is the live book controller
+     * - Library→EMB redirect from DocumentWrapperUI.onResume: dc is from VerticalViewActivity
+     *
+     * In both cases the epub cache is already built by VerticalViewActivity's decoder,
+     * so singleCodecContext(dc.getCurrentBook().getPath()) will succeed.
+     */
     public static void launch(DocumentController dc) {
         Context ctx = dc.getActivity();
         if (ctx == null) return;
+
+        launchInFlight = true;
         lastDC = dc;
-        stopTTS(ctx);
+
+        // Stop TTS speech without destroying the engine (critical!).
+        // TTS_STOP_DESTROY would null out TTSEngine.ttsEngine, making speak() fail.
+        try {
+            TextToSpeech tts = TTSEngine.get().getTTS();
+            if (tts != null) tts.stop();
+        } catch (Exception ignored) {}
 
         int page  = dc.getCurentPageFirst1() - 1;
         int parag = AppSP.get().lastBookParagraph;
@@ -145,28 +180,6 @@ public class EMBReaderActivity extends Activity {
         i.putExtra(EXTRA_HEIGHT, dc.getBookHeight());
         i.putExtra(EXTRA_FONT,   BookCSS.get().fontSizeSp);
         ctx.startActivity(i);
-    }
-
-    /** Launch from library / mode dialog / ExtUtils — no DocumentController. */
-    public static void launch(Context ctx, String path, int page, int parag,
-                              int width, int height, int font) {
-        stopTTS(ctx);
-        Intent i = new Intent(ctx, EMBReaderActivity.class);
-        i.putExtra(EXTRA_PATH,   path);
-        i.putExtra(EXTRA_PAGE,   page);
-        i.putExtra(EXTRA_PARAG,  parag);
-        i.putExtra(EXTRA_WIDTH,  width);
-        i.putExtra(EXTRA_HEIGHT, height);
-        i.putExtra(EXTRA_FONT,   font);
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(i);
-    }
-
-    private static void stopTTS(Context ctx) {
-        try {
-            ctx.startService(new Intent(TTSNotification.TTS_STOP_DESTROY,
-                    null, ctx, TTSService.class));
-        } catch (Exception ignored) {}
     }
 
     // -------------------------------------------------------------------------
@@ -193,12 +206,16 @@ public class EMBReaderActivity extends Activity {
         loadChapterAsync();
     }
 
-    @Override protected void onResume() { super.onResume(); isActive = true; }
+    @Override
+    protected void onResume() {
+        super.onResume();
+        isActive       = true;
+        launchInFlight = false; // EMB is now running; allow future re-launches if needed
+    }
 
     @Override
     protected void onPause() {
         super.onPause();
-        isActive = false;
         if (synthesisQueue != null && isPlaying) {
             synthesisQueue.pause();
             isPlaying = false;
@@ -208,9 +225,19 @@ public class EMBReaderActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        isDestroyed = true;
-        isActive    = false;
+        isDestroyed    = true;
+        isActive       = false;
+        launchInFlight = false;
+
+        // If EMB died unexpectedly (crash/error, not user Back press), reset the reading
+        // mode so VerticalViewActivity.onResume doesn't immediately re-launch EMB.
+        if (!userExited) {
+            AppSP.get().readingMode = AppState.READING_MODE_SCROLL;
+            AppSP.get().save();
+        }
+
         if (synthesisQueue != null) synthesisQueue.stop();
+
         if (webView != null) {
             ViewGroup p = (ViewGroup) webView.getParent();
             if (p != null) p.removeView(webView);
@@ -219,17 +246,16 @@ public class EMBReaderActivity extends Activity {
         super.onDestroy();
     }
 
-    /**
-     * Override back button: reset readingMode so VerticalViewActivity doesn't
-     * re-trigger an EMB launch when it resumes.
-     */
     @Override
     public void onBackPressed() {
         finishEMB();
     }
 
-    /** Finish this activity and reset readingMode to avoid re-launch loops. */
+    /**
+     * Finish and reset readingMode so VerticalViewActivity.onResume won't re-launch EMB.
+     */
     private void finishEMB() {
+        userExited = true;
         AppSP.get().readingMode = AppState.READING_MODE_SCROLL;
         AppSP.get().save();
         finish();
@@ -249,7 +275,7 @@ public class EMBReaderActivity extends Activity {
     }
 
     // -------------------------------------------------------------------------
-    // WebView — single tap = highlight, double tap = play from here
+    // WebView — single tap highlights, double tap plays from here
     // -------------------------------------------------------------------------
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -264,39 +290,26 @@ public class EMBReaderActivity extends Activity {
 
         webView.addJavascriptInterface(new JsBridge(), "EMB");
 
-        // GestureDetector for single vs double tap on the WebView
         gestureDetector = new GestureDetector(this,
                 new GestureDetector.SimpleOnGestureListener() {
-
-            @Override
-            public boolean onSingleTapConfirmed(MotionEvent e) {
-                // JS getSentenceAt fires via click listener injected after page load
-                return false; // let the click propagate to WebView's JS handler
-            }
-
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                // Double tap: JS returns the sentence index, then we play from there
                 final float x = e.getX(), y = e.getY();
-                webView.evaluateJavascript(
-                    "getSentenceAt(" + x + "," + y + ")",
-                    value -> {
-                        try {
-                            int idx = Integer.parseInt(value.trim());
-                            if (idx >= 0) {
-                                mainHandler.post(() -> {
-                                    if (!isDestroyed) seekAndPlay(idx);
-                                });
-                            }
-                        } catch (NumberFormatException ignored) {}
-                    });
+                webView.evaluateJavascript("getSentenceAt(" + x + "," + y + ")", value -> {
+                    try {
+                        int idx = Integer.parseInt(value.trim());
+                        if (idx >= 0) mainHandler.post(() -> {
+                            if (!isDestroyed) seekAndPlay(idx);
+                        });
+                    } catch (NumberFormatException ignored) {}
+                });
                 return true;
             }
         });
 
         webView.setOnTouchListener((v, event) -> {
             gestureDetector.onTouchEvent(event);
-            return false; // still let WebView handle scrolling/clicks
+            return false;
         });
 
         webView.setWebViewClient(new WebViewClient() {
@@ -305,7 +318,7 @@ public class EMBReaderActivity extends Activity {
                 if (isDestroyed || pageLoaded) return;
                 pageLoaded = true;
 
-                // Single-tap listener: highlights sentence, does NOT start playback
+                // Single-tap: highlight only, no playback
                 webView.evaluateJavascript(
                     "(function(){" +
                     "document.addEventListener('click',function(e){" +
@@ -314,17 +327,13 @@ public class EMBReaderActivity extends Activity {
                     "});" +
                     "})();", null);
 
-                // Restore saved position — highlight only, no play
-                int from = getIntent().getIntExtra(EXTRA_PARAG, 0);
-                // Re-read from AppSP in case it was updated since the intent was created
-                int saved = AppSP.get().lastBookParagraph;
-                if (saved > 0) from = saved;
+                // Restore saved position without auto-playing
+                int from = Math.max(0, AppSP.get().lastBookParagraph);
                 if (chapter != null && !chapter.sentences.isEmpty()) {
-                    from = Math.max(0, Math.min(from, chapter.sentences.size() - 1));
+                    from = Math.min(from, chapter.sentences.size() - 1);
                 }
                 currentSentenceIdx = from;
                 updateProgress(from);
-
                 final int f = from;
                 mainHandler.postDelayed(() -> {
                     if (!isDestroyed) {
@@ -342,39 +351,35 @@ public class EMBReaderActivity extends Activity {
     private void setupControls() {
         btnPrev.setOnClickListener(v -> {
             int t = Math.max(0, currentSentenceIdx - 1);
-            if (isPlaying) seekAndPlay(t);
-            else           justHighlight(t);
+            if (isPlaying) seekAndPlay(t); else justHighlight(t);
         });
 
         btnNext.setOnClickListener(v -> {
             if (chapter == null) return;
             int t = Math.min(chapter.sentences.size() - 1, currentSentenceIdx + 1);
-            if (isPlaying) seekAndPlay(t);
-            else           justHighlight(t);
+            if (isPlaying) seekAndPlay(t); else justHighlight(t);
         });
 
         btnPlayPause.setOnClickListener(v -> {
-            if (isPlaying) pausePlayback();
-            else           startOrResume();
+            if (isPlaying) pausePlayback(); else startOrResume();
         });
 
         btnClose.setOnClickListener(v -> finishEMB());
-
         btnSettings.setOnClickListener(v -> openSettings());
     }
 
     // -------------------------------------------------------------------------
-    // Settings — uses DragingDialogs.dialogTextToSpeech with the layout anchor
+    // Settings — opens the full existing TTS dialog
     // -------------------------------------------------------------------------
 
     private void openSettings() {
         DocumentController dc = lastDC;
         if (dc == null) {
-            Toast.makeText(this, "Open a book first to access full TTS settings",
-                    Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No book context for TTS settings", Toast.LENGTH_SHORT).show();
             return;
         }
-        // dialogAnchor's parent is the root RelativeLayout (a View) ✓
+        // dialogAnchor is a FrameLayout whose parent is the root RelativeLayout (a View).
+        // This satisfies DragingPopup's cast: ((View) anchor.getParent()).getWidth()
         DragingDialogs.dialogTextToSpeech(dialogAnchor, dc, "");
     }
 
@@ -400,8 +405,11 @@ public class EMBReaderActivity extends Activity {
         new Thread(() -> {
             CodecDocument dc = null;
             try {
+                // VerticalViewActivity has already built the epub cache, so this should
+                // succeed on first try. The cache file at CACHE_BOOK_DIR/hash.epub exists.
                 dc = ImageExtractor.singleCodecContext(path, "");
-                if (dc == null) { postError("Cannot open: " + path); return; }
+                if (dc == null) { postError("Cannot open book at: " + path); return; }
+
                 dc.getPageCount(width, height, font);
 
                 List<OutlineLinkWrapper> outline = convertOutline(dc.getOutline());
@@ -421,7 +429,7 @@ public class EMBReaderActivity extends Activity {
 
             } catch (Exception e) {
                 LOG.e(e);
-                postError("Error: " + e.getMessage());
+                postError("Error loading chapter: " + e.getMessage());
             } finally {
                 if (dc != null) try { dc.recycle(); } catch (Exception ignored) {}
             }
@@ -465,8 +473,13 @@ public class EMBReaderActivity extends Activity {
     }
 
     private void postError(String msg) {
+        LOG.d(TAG, "postError:", msg);
         mainHandler.post(() -> {
-            if (!isDestroyed) { Toast.makeText(this, msg, Toast.LENGTH_LONG).show(); finish(); }
+            if (!isDestroyed) {
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+                // Don't finish() - let user see the error and dismiss
+                // finishEMB will be called if they press Back or Close
+            }
         });
     }
 
@@ -479,6 +492,7 @@ public class EMBReaderActivity extends Activity {
             Toast.makeText(this, "Chapter still loading…", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!ensureTTSReady()) return;
 
         if (synthesisQueue == null) {
             createQueue();
@@ -492,13 +506,38 @@ public class EMBReaderActivity extends Activity {
         }
     }
 
+    /**
+     * Verify the TTS engine is ready. If it was just created (async init), wait for onInit.
+     * Returns true if ready immediately, false if we need to wait (will retry automatically).
+     */
+    private boolean ensureTTSReady() {
+        if (TTSEngine.get().isInit()) return true;
+
+        // Engine needs initialisation — getTTS() creates it and fires onInit asynchronously.
+        // Use an anonymous class to stay compatible with the existing OnInitListener API.
+        TTSEngine.get().getTTS(new android.speech.tts.TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if (status == TextToSpeech.SUCCESS) {
+                    mainHandler.postDelayed(() -> {
+                        if (!isDestroyed && !isPlaying) startOrResume();
+                    }, 500);
+                } else {
+                    mainHandler.post(() -> Toast.makeText(EMBReaderActivity.this,
+                        "TTS engine failed to initialise", Toast.LENGTH_SHORT).show());
+                }
+            }
+        });
+        Toast.makeText(this, "Initialising TTS engine…", Toast.LENGTH_SHORT).show();
+        return false;
+    }
+
     private void pausePlayback() {
         if (synthesisQueue != null) synthesisQueue.pause();
         isPlaying = false;
         updatePlayIcon();
     }
 
-    /** Highlight sentence without starting or changing playback state. */
     private void justHighlight(int idx) {
         if (chapter == null || idx < 0 || idx >= chapter.sentences.size()) return;
         currentSentenceIdx = idx;
@@ -506,18 +545,14 @@ public class EMBReaderActivity extends Activity {
         updateProgress(idx);
     }
 
-    /** Move to sentence and immediately (re)start playback. */
     private void seekAndPlay(int idx) {
         if (chapter == null || idx < 0 || idx >= chapter.sentences.size()) return;
         currentSentenceIdx = idx;
         webView.evaluateJavascript("highlightSentence(" + idx + ")", null);
         updateProgress(idx);
 
-        // Stop existing queue and start fresh from this index
-        if (synthesisQueue != null) {
-            synthesisQueue.stop();
-            synthesisQueue = null;
-        }
+        if (synthesisQueue != null) { synthesisQueue.stop(); synthesisQueue = null; }
+        if (!ensureTTSReady()) return;
         createQueue();
         isPlaying = true;
         updatePlayIcon();
@@ -543,7 +578,7 @@ public class EMBReaderActivity extends Activity {
                 mainHandler.post(() -> { if (!isDestroyed) updatePlayIcon(); });
             }
             @Override public void onError(int idx, Exception e) {
-                LOG.e(e, TAG, "sentence error at", idx);
+                LOG.e(e, TAG, "TTS error at sentence", idx);
             }
         });
     }
@@ -569,7 +604,6 @@ public class EMBReaderActivity extends Activity {
     // -------------------------------------------------------------------------
 
     private class JsBridge {
-        /** Called from the single-tap JS listener — highlight only. */
         @JavascriptInterface
         public void onSingleTap(final int idx) {
             mainHandler.post(() -> { if (!isDestroyed) justHighlight(idx); });

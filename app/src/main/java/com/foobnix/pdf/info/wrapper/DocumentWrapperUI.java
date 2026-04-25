@@ -67,6 +67,7 @@ import com.foobnix.pdf.info.view.UnderlineImageView;
 import com.foobnix.pdf.info.widget.DraggbleTouchListener;
 import com.foobnix.pdf.info.widget.ShareDialog;
 import com.foobnix.pdf.search.activity.ViewBinder;
+import com.foobnix.pdf.search.activity.EMBReaderActivity;
 import com.foobnix.pdf.search.activity.PageImageState;
 import com.foobnix.pdf.search.activity.msg.InvalidateMessage;
 import com.foobnix.pdf.search.activity.msg.MessagePageXY;
@@ -2271,6 +2272,17 @@ public class DocumentWrapperUI {
     public void onResume() {
         LOG.d("DocumentWrapperUI", "onResume");
         handlerTimer.post(updateTimePower);
+
+        // EMB mode: VerticalViewActivity opened the book and built the epub cache.
+        // Now redirect to EMBReaderActivity. launchInFlight prevents re-triggering
+        // while EMBReaderActivity is starting up (before its onResume sets isActive).
+        if (AppSP.get().readingMode == AppState.READING_MODE_EMB
+                && !EMBReaderActivity.isActive
+                && !EMBReaderActivity.launchInFlight
+                && dc != null) {
+            EMBReaderActivity.launch(dc);
+            return;
+        }
 
         if (dc != null) {
             dc.goToPageByTTS();
