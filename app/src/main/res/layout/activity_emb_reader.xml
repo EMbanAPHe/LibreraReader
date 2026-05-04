@@ -128,17 +128,17 @@
     </LinearLayout>
 
     <!--
-        Invisible DragingPopup anchor.
-        Its parent is the root RelativeLayout (a View), satisfying
-        DragingPopup's cast: ((View) anchor.getParent()).getWidth()
+        DragingPopup anchor — fills the screen so the popup can render inside it.
+        Must be match_parent so the popup is visible when added via anchor.addView().
+        Parent is the root RelativeLayout (a View) satisfying DragingPopup line 107.
+        Initially GONE; DragingPopup.show() sets it to VISIBLE.
     -->
     <FrameLayout
         android:id="@+id/emb_dialog_anchor"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true"
-        android:layout_marginBottom="60dp"
-        android:visibility="invisible" />
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:focusable="false"
+        android:visibility="gone" />
 
 </RelativeLayout>

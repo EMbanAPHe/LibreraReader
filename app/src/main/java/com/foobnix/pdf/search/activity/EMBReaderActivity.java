@@ -8,8 +8,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.speech.tts.TextToSpeech;
-import android.view.GestureDetector;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -131,7 +129,6 @@ public class EMBReaderActivity extends Activity {
 
     private EMBChapterExtractor.ChapterContent chapter;
     private SynthesisQueue synthesisQueue;
-    private GestureDetector gestureDetector;
 
     private volatile int     currentSentenceIdx = 0;
     private volatile boolean isPlaying          = false;
@@ -290,40 +287,27 @@ public class EMBReaderActivity extends Activity {
 
         webView.addJavascriptInterface(new JsBridge(), "EMB");
 
-        gestureDetector = new GestureDetector(this,
-                new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public boolean onDoubleTap(MotionEvent e) {
-                final float x = e.getX(), y = e.getY();
-                webView.evaluateJavascript("getSentenceAt(" + x + "," + y + ")", value -> {
-                    try {
-                        int idx = Integer.parseInt(value.trim());
-                        if (idx >= 0) mainHandler.post(() -> {
-                            if (!isDestroyed) seekAndPlay(idx);
-                        });
-                    } catch (NumberFormatException ignored) {}
-                });
-                return true;
-            }
-        });
-
-        webView.setOnTouchListener((v, event) -> {
-            gestureDetector.onTouchEvent(event);
-            return false;
-        });
-
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (isDestroyed || pageLoaded) return;
                 pageLoaded = true;
 
-                // Single-tap: highlight only, no playback
+                // Single tap  → highlight the tapped sentence (no playback).
+                // Double tap  → highlight and START/SEEK playback from that sentence.
+                // Using JS click/dblclick events is more reliable than GestureDetector
+                // because WebView's own touch handling intercepts MotionEvents before
+                // the GestureDetector can distinguish single from double tap.
                 webView.evaluateJavascript(
                     "(function(){" +
                     "document.addEventListener('click',function(e){" +
-                    "var i=getSentenceAt(e.clientX,e.clientY);" +
-                    "if(i>=0){EMB.onSingleTap(i);}" +
+                    "  var i=getSentenceAt(e.clientX,e.clientY);" +
+                    "  if(i>=0) EMB.onSingleTap(i);" +
+                    "});" +
+                    "document.addEventListener('dblclick',function(e){" +
+                    "  e.preventDefault();" +
+                    "  var i=getSentenceAt(e.clientX,e.clientY);" +
+                    "  if(i>=0) EMB.onDoubleTap(i);" +
                     "});" +
                     "})();", null);
 
@@ -364,7 +348,10 @@ public class EMBReaderActivity extends Activity {
             if (isPlaying) pausePlayback(); else startOrResume();
         });
 
-        btnClose.setOnClickListener(v -> finishEMB());
+        // X stops playback — does NOT exit the activity.
+        // Press Back or use the system back gesture to leave Article View.
+        btnClose.setOnClickListener(v -> stopPlayback());
+
         btnSettings.setOnClickListener(v -> openSettings());
     }
 
@@ -538,6 +525,16 @@ public class EMBReaderActivity extends Activity {
         updatePlayIcon();
     }
 
+    /** Stop playback completely and reset to stopped state. X button calls this. */
+    private void stopPlayback() {
+        if (synthesisQueue != null) {
+            synthesisQueue.stop();
+            synthesisQueue = null;
+        }
+        isPlaying = false;
+        updatePlayIcon();
+    }
+
     private void justHighlight(int idx) {
         if (chapter == null || idx < 0 || idx >= chapter.sentences.size()) return;
         currentSentenceIdx = idx;
@@ -604,9 +601,19 @@ public class EMBReaderActivity extends Activity {
     // -------------------------------------------------------------------------
 
     private class JsBridge {
+        /** Single tap: highlight sentence, no playback change. */
         @JavascriptInterface
         public void onSingleTap(final int idx) {
             mainHandler.post(() -> { if (!isDestroyed) justHighlight(idx); });
+        }
+
+        /**
+         * Double tap: seek to sentence and start/resume playback from there.
+         * If already playing, stops the current queue and restarts from idx.
+         */
+        @JavascriptInterface
+        public void onDoubleTap(final int idx) {
+            mainHandler.post(() -> { if (!isDestroyed) seekAndPlay(idx); });
         }
     }
 }
