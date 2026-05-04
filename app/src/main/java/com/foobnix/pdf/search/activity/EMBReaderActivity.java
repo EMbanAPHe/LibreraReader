@@ -30,6 +30,7 @@ import com.foobnix.pdf.info.view.DragingDialogs;
 import com.foobnix.pdf.info.wrapper.DocumentController;
 import com.foobnix.pdf.info.wrapper.MagicHelper;
 import com.foobnix.sys.ImageExtractor;
+import com.foobnix.ext.CacheZipUtils;
 import com.foobnix.tts.EMBChapterExtractor;
 import com.foobnix.tts.SynthesisQueue;
 import com.foobnix.tts.TTSEngine;
@@ -135,9 +136,6 @@ public class EMBReaderActivity extends Activity {
     private volatile boolean pageLoaded         = false;
     private volatile boolean isDestroyed        = false;
 
-    /** Set by finishEMB() so onDestroy knows not to reset readingMode twice. */
-    private boolean userExited = false;
-
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // -------------------------------------------------------------------------
@@ -226,13 +224,6 @@ public class EMBReaderActivity extends Activity {
         isActive       = false;
         launchInFlight = false;
 
-        // If EMB died unexpectedly (crash/error, not user Back press), reset the reading
-        // mode so VerticalViewActivity.onResume doesn't immediately re-launch EMB.
-        if (!userExited) {
-            AppSP.get().readingMode = AppState.READING_MODE_SCROLL;
-            AppSP.get().save();
-        }
-
         if (synthesisQueue != null) synthesisQueue.stop();
 
         if (webView != null) {
@@ -249,11 +240,23 @@ public class EMBReaderActivity extends Activity {
     }
 
     /**
-     * Finish and reset readingMode so VerticalViewActivity.onResume won't re-launch EMB.
+     * Finish Article View. Does NOT reset readingMode — if the user reopens the same
+     * book, it should come back to Article View. The loop prevention is handled by
+     * launchInFlight and isActive flags in DocumentWrapperUI.onResume.
+     *
+     * When VerticalViewActivity resumes after this finish(), it will re-trigger the
+     * EMB redirect. To prevent that we set launchInFlight=true so the next
+     * DocumentWrapperUI.onResume checks it and doesn't re-launch unnecessarily.
+     * The user pressing Back a second time from VerticalView will not re-trigger
+     * because VerticalView won't call onResume again from the back stack.
      */
     private void finishEMB() {
-        userExited = true;
-        AppSP.get().readingMode = AppState.READING_MODE_SCROLL;
+        // Set launchInFlight so that when VerticalViewActivity.onResume fires
+        // (because EMB is finishing and returning focus to VerticalView),
+        // DocumentWrapperUI.onResume sees launchInFlight=true and skips the redirect.
+        // We clear it after a short delay (longer than VerticalView's onResume window).
+        launchInFlight = true;
+        mainHandler.postDelayed(() -> launchInFlight = false, 2000);
         AppSP.get().save();
         finish();
     }
@@ -293,23 +296,9 @@ public class EMBReaderActivity extends Activity {
                 if (isDestroyed || pageLoaded) return;
                 pageLoaded = true;
 
-                // Single tap  → highlight the tapped sentence (no playback).
-                // Double tap  → highlight and START/SEEK playback from that sentence.
-                // Using JS click/dblclick events is more reliable than GestureDetector
-                // because WebView's own touch handling intercepts MotionEvents before
-                // the GestureDetector can distinguish single from double tap.
-                webView.evaluateJavascript(
-                    "(function(){" +
-                    "document.addEventListener('click',function(e){" +
-                    "  var i=getSentenceAt(e.clientX,e.clientY);" +
-                    "  if(i>=0) EMB.onSingleTap(i);" +
-                    "});" +
-                    "document.addEventListener('dblclick',function(e){" +
-                    "  e.preventDefault();" +
-                    "  var i=getSentenceAt(e.clientX,e.clientY);" +
-                    "  if(i>=0) EMB.onDoubleTap(i);" +
-                    "});" +
-                    "})();", null);
+                // Tap and double-tap are handled entirely in JS via touchstart/touchend
+                // injected in the HTML <script> block by EMBChapterExtractor.
+                // No additional JS injection needed here.
 
                 // Restore saved position without auto-playing
                 int from = Math.max(0, AppSP.get().lastBookParagraph);
@@ -392,10 +381,23 @@ public class EMBReaderActivity extends Activity {
         new Thread(() -> {
             CodecDocument dc = null;
             try {
-                // VerticalViewActivity has already built the epub cache, so this should
-                // succeed on first try. The cache file at CACHE_BOOK_DIR/hash.epub exists.
-                dc = ImageExtractor.singleCodecContext(path, "");
-                if (dc == null) { postError("Cannot open book at: " + path); return; }
+                // For EPUB files, VerticalViewActivity may have already built a cached
+                // version at CACHE_BOOK_DIR/hash.epub. Try the cached path first.
+                // If it doesn't exist (new book, first open), fall back to the original path.
+                String openPath = resolveBestPath(path);
+                LOG.d(TAG, "loadChapter path:", path, "→ openPath:", openPath);
+
+                dc = ImageExtractor.singleCodecContext(openPath, "");
+                if (dc == null) {
+                    // If cached path failed, try the original
+                    if (!openPath.equals(path)) {
+                        dc = ImageExtractor.singleCodecContext(path, "");
+                    }
+                    if (dc == null) {
+                        postError("Cannot open: " + path);
+                        return;
+                    }
+                }
 
                 dc.getPageCount(width, height, font);
 
@@ -421,6 +423,47 @@ public class EMBReaderActivity extends Activity {
                 if (dc != null) try { dc.recycle(); } catch (Exception ignored) {}
             }
         }, "@EMB ChapterLoad").start();
+    }
+
+    /**
+     * For EPUB files: try to find the cached version that VerticalViewActivity built.
+     * The cache path mirrors EpubContext.getCacheFileName():
+     *   CACHE_BOOK_DIR / (originalPath + appStateFlags).hashCode() + ".epub"
+     *
+     * If the cached file exists, return it. Otherwise return the original path.
+     * Non-EPUB formats (PDF, MOBI etc.) always return the original path.
+     */
+    private String resolveBestPath(String originalPath) {
+        if (originalPath == null) return originalPath;
+        if (!originalPath.toLowerCase().endsWith(".epub")) return originalPath;
+
+        try {
+            // Replicate EpubContext.getCacheFileName() hash computation
+            String hashInput = originalPath
+                + com.foobnix.model.AppState.get().isReferenceMode
+                + com.foobnix.model.AppState.get().isShowPageNumbers
+                + com.foobnix.model.AppState.get().isShowFooterNotesInText
+                + com.foobnix.model.AppState.get().fullScreenMode
+                + com.foobnix.pdf.info.model.BookCSS.get().documentStyle
+                + com.foobnix.pdf.info.model.BookCSS.get().isAutoHypens
+                + com.foobnix.model.AppState.get().isBionicMode
+                + AppSP.get().hypenLang
+                + com.foobnix.model.AppState.get().enableImageScale
+                + com.foobnix.model.AppState.get().textReplacementHash
+                + com.foobnix.model.AppState.get().isExperimental;
+
+            java.io.File cacheDir = com.foobnix.ext.CacheZipUtils.CACHE_BOOK_DIR;
+            if (cacheDir == null) return originalPath;
+
+            java.io.File cached = new java.io.File(cacheDir, hashInput.hashCode() + ".epub");
+            if (cached.isFile() && cached.length() > 0) {
+                LOG.d(TAG, "Using cached epub:", cached.getAbsolutePath());
+                return cached.getAbsolutePath();
+            }
+        } catch (Exception e) {
+            LOG.e(e);
+        }
+        return originalPath;
     }
 
     private EMBChapterExtractor.ThemeParams buildTheme() {
